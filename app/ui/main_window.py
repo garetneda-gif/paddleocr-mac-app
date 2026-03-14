@@ -1,4 +1,4 @@
-"""主窗口 — 整合侧边栏、快速转换面板、高级选项、设置、预览面板和进度对话框。"""
+"""主窗口 — 整合侧边栏、快速转换面板、高级选项、设置。"""
 
 from __future__ import annotations
 
@@ -6,15 +6,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QMainWindow,
     QMessageBox,
     QStackedWidget,
-    QVBoxLayout,
     QWidget,
-    QFileDialog,
 )
 
 from app.core.export_router import create_default_router
@@ -23,7 +20,6 @@ from app.models import DocumentResult
 from app.models.enums import OutputFormat
 from app.models.job import OCRJob
 from app.ui.advanced_panel import AdvancedPanel
-from app.ui.preview_panel import PreviewPanel
 from app.ui.progress_dialog import ProgressDialog
 from app.ui.quick_convert_panel import QuickConvertPanel
 from app.ui.settings_panel import SettingsPanel
@@ -35,8 +31,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("PaddleOCR — 智能文档识别")
-        self.setMinimumSize(960, 600)
-        self.resize(1100, 700)
+        self.setMinimumSize(780, 520)
+        self.resize(900, 640)
 
         self._worker: OCRWorker | None = None
         self._progress_dialog: ProgressDialog | None = None
@@ -59,7 +55,7 @@ class MainWindow(QMainWindow):
         self._sidebar.page_changed.connect(self._on_page_changed)
         main_layout.addWidget(self._sidebar)
 
-        # 中间主面板（堆叠多页面）
+        # 中间主面板（堆叠多页面）— 占满剩余空间
         self._stack = QStackedWidget()
         main_layout.addWidget(self._stack, 1)
 
@@ -76,10 +72,6 @@ class MainWindow(QMainWindow):
         # 页面 2：设置
         self._settings_panel = SettingsPanel()
         self._stack.addWidget(self._settings_panel)
-
-        # 右侧预览
-        self._preview = PreviewPanel()
-        main_layout.addWidget(self._preview)
 
     def _load_styles(self) -> None:
         from app.utils.paths import resources_dir
@@ -98,33 +90,24 @@ class MainWindow(QMainWindow):
             language=lang,
         )
         self._current_output_dir = default_output_dir()
-        self._run_job(job, file_path)
+        self._run_job(job)
 
     # ── 高级转换入口 ──
     def _on_start_advanced(self, params: dict) -> None:
-        fmt_str = params["output_format"]
-        fmt = OutputFormat(fmt_str)
-
+        fmt = OutputFormat(params["output_format"])
         job = OCRJob(
             source_path=params["file_path"],
             output_format=fmt,
             language=params["language"],
             preserve_layout=params.get("preserve_layout", False),
         )
-
-        # 保存额外参数供 worker 使用
         job._advanced_params = params
         self._current_output_dir = params.get("output_dir", default_output_dir())
-        self._run_job(job, params["file_path"])
+        self._run_job(job)
 
-    def _run_job(self, job: OCRJob, file_path: Path) -> None:
+    def _run_job(self, job: OCRJob) -> None:
         self._current_job = job
 
-        # 显示预览
-        if file_path.suffix.lower() in (".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"):
-            self._preview.set_image(file_path)
-
-        # 启动 worker
         self._worker = OCRWorker(job)
         self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_finished)
@@ -144,8 +127,6 @@ class MainWindow(QMainWindow):
         if self._progress_dialog:
             self._progress_dialog.close()
             self._progress_dialog = None
-
-        self._preview.set_status(f"识别完成: {result.page_count} 页")
 
         try:
             job = self._current_job

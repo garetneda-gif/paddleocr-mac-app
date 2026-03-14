@@ -19,7 +19,7 @@ from app.ui.drop_zone import DropZone
 from app.ui.format_card import FormatCard
 
 _LANGUAGES = [
-    ("ch", "中文"),
+    ("ch", "中文（含中英混合）"),
     ("en", "English"),
     ("japan", "日本語"),
     ("korean", "한국어"),
