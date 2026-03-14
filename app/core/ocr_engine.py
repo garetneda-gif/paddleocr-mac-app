@@ -11,17 +11,15 @@ from app.models import BlockResult, BlockType, DocumentResult, PageResult
 
 
 def _bbox_from_polygon(polygon: list) -> tuple[float, float, float, float]:
-    """将多边形坐标转为 xyxy 轴对齐最小外接矩形。"""
     xs = [p[0] for p in polygon]
     ys = [p[1] for p in polygon]
     return (float(min(xs)), float(min(ys)), float(max(xs)), float(max(ys)))
 
 
 class OCREngine:
-    """封装 PaddleOCR，提供统一的 predict -> DocumentResult 接口。"""
-
-    def __init__(self, lang: str = "ch") -> None:
+    def __init__(self, lang: str = "ch", speed_mode: str = "server") -> None:
         self._lang = lang
+        self._speed_mode = speed_mode
         self._ocr = None
 
     def _ensure_model(self) -> None:
@@ -29,12 +27,18 @@ class OCREngine:
             return
         from paddleocr import PaddleOCR
 
-        self._ocr = PaddleOCR(
+        kwargs = dict(
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             use_textline_orientation=False,
             lang=self._lang,
         )
+
+        if self._speed_mode == "mobile":
+            kwargs["text_detection_model_name"] = "PP-OCRv5_mobile_det"
+            kwargs["text_recognition_model_name"] = "PP-OCRv5_mobile_rec"
+
+        self._ocr = PaddleOCR(**kwargs)
 
     def predict(self, image_path: Path) -> DocumentResult:
         self._ensure_model()
@@ -72,7 +76,6 @@ class OCREngine:
                 )
                 all_texts.append(text)
 
-            # PaddleOCR 不直接返回页面尺寸，从 bbox 推断近似值
             max_x = max((b.bbox[2] for b in blocks), default=0)
             max_y = max((b.bbox[3] for b in blocks), default=0)
             pages.append(

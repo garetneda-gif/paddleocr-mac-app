@@ -82,6 +82,7 @@ class MainWindow(QMainWindow):
             language=lang,
             preserve_layout=adv.get("preserve_layout", False),
         )
+        job._adv_params = adv  # 传递全部高级参数给 worker
 
         self._current_job = job
 

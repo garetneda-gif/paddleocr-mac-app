@@ -11,6 +11,10 @@ from app.models import DocumentResult, PageResult
 from app.models.enums import OutputFormat
 from app.models.job import OCRJob
 
+# 从 job 上读取 UI 传入的高级参数
+def _get_adv(job: OCRJob, key: str, default=None):
+    return getattr(job, '_adv_params', {}).get(key, default)
+
 _WORKER_STACK_SIZE = 64 * 1024 * 1024
 
 
@@ -50,13 +54,14 @@ class OCRWorker(QThread):
         self.progress.emit(f"共 {total} 页，正在初始化模型...", 0, total)
 
         # ── 2. 初始化引擎 ──
+        speed_mode = _get_adv(job, "speed_mode", "server")
         use_structure = self._should_use_structure(job)
         if use_structure:
             from app.core.structure_engine import StructureEngine
             engine = StructureEngine(lang=job.language)
         else:
             from app.core.ocr_engine import OCREngine
-            engine = OCREngine(lang=job.language)
+            engine = OCREngine(lang=job.language, speed_mode=speed_mode)
 
         engine._ensure_model()
         if self._cancel:
