@@ -17,20 +17,23 @@ paddlex_datas, paddlex_bins, paddlex_hi = collect_all('paddlex')
 # PySide6 Qt 插件、翻译等
 pyside_datas, pyside_bins, pyside_hi = collect_all('PySide6')
 
+# OpenCV 需要 collect_all 以包含 .so/.dylib
+cv2_datas, cv2_bins, cv2_hi = collect_all('cv2')
+
 # 其他依赖
 extra_hi = collect_submodules('fitz') + collect_submodules('docx') + \
            collect_submodules('openpyxl') + collect_submodules('reportlab') + \
            collect_submodules('lxml') + collect_submodules('PIL') + \
-           collect_submodules('cv2') + collect_submodules('numpy') + \
+           collect_submodules('numpy') + \
            collect_submodules('yaml') + collect_submodules('ruamel') + \
            collect_submodules('ruamel.yaml')
 
-all_datas = paddle_datas + paddleocr_datas + paddlex_datas + pyside_datas + [
+all_datas = paddle_datas + paddleocr_datas + paddlex_datas + pyside_datas + cv2_datas + [
     (str(ROOT / "resources"), "resources"),
 ]
-all_binaries = paddle_binaries + paddleocr_bins + paddlex_bins + pyside_bins
+all_binaries = paddle_binaries + paddleocr_bins + paddlex_bins + pyside_bins + cv2_bins
 all_hiddenimports = (
-    paddle_hiddenimports + paddleocr_hi + paddlex_hi + pyside_hi + extra_hi + [
+    paddle_hiddenimports + paddleocr_hi + paddlex_hi + pyside_hi + cv2_hi + extra_hi + [
         'app', 'app.models', 'app.core', 'app.converters', 'app.ui', 'app.utils',
     ]
 )
