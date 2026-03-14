@@ -39,16 +39,21 @@ class OCRWorker(QThread):
     def _do_work(self) -> None:
         job = self._job
 
-        # 判断输入类型
+        # ── 1. PDF 页面提取 ──
         suffix = job.source_path.suffix.lower()
         if suffix == ".pdf":
+            self.progress.emit("正在提取 PDF 页面（可能需要较长时间）...", 0, 0)
             image_paths = self._extract_pdf_pages(job.source_path)
+            if self._cancel:
+                self.error.emit("用户取消了操作")
+                return
         else:
             image_paths = [job.source_path]
 
         total = len(image_paths)
+        self.progress.emit(f"PDF 共 {total} 页，正在初始化模型...", 0, total)
 
-        # 根据映射表选择 pipeline
+        # ── 2. 选择并初始化引擎 ──
         use_structure = self._should_use_structure(job)
 
         if use_structure:
@@ -58,10 +63,15 @@ class OCRWorker(QThread):
             from app.core.ocr_engine import OCREngine
             engine = OCREngine(lang=job.language)
 
-        self.progress.emit("正在初始化模型...", 0, total)
         engine._ensure_model()
 
-        # 逐页处理
+        if self._cancel:
+            self.error.emit("用户取消了操作")
+            return
+
+        self.progress.emit("模型就绪，开始识别...", 0, total)
+
+        # ── 3. 逐页识别 ──
         all_pages = []
         all_texts = []
 
@@ -70,7 +80,7 @@ class OCRWorker(QThread):
                 self.error.emit("用户取消了操作")
                 return
 
-            self.progress.emit("正在识别...", i + 1, total)
+            self.progress.emit(f"正在识别第 {i + 1}/{total} 页...", i + 1, total)
             page_result = engine.predict(img_path)
 
             for page in page_result.pages:
