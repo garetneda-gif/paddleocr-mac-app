@@ -1,0 +1,41 @@
+# =============================================================
+# macOS OCR App — runtime dependencies
+# Python 3.12 虚拟环境专用
+# =============================================================
+#
+# 重要：paddlepaddle 必须在本文件之前单独安装！
+#   pip install paddlepaddle==3.3.0 \
+#       -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
+#
+# 然后再执行：
+#   pip install -r requirements.txt
+# =============================================================
+
+# --- OCR 核心 ---
+paddleocr==3.4.0
+
+# --- UI 框架 ---
+PySide6==6.10.2
+
+# --- PDF 处理 ---
+pymupdf==1.27.2
+
+# --- 图像处理 ---
+Pillow>=10.0
+
+# --- OpenCV ---
+# OpenCV 由 paddleocr -> paddlex 的传递依赖提供，当前上游为
+# opencv-contrib-python==4.10.0.84。MVP 阶段不单独声明，
+# 避免与上游锁定重复或版本漂移。
+# 若阶段 6 需要显式 pin，必须先核对与 paddlex 传递依赖是否一致。
+# opencv-contrib-python==4.10.0.84
+
+# --- 文档导出 ---
+reportlab>=4.0
+python-docx>=1.0
+openpyxl>=3.1
+lxml>=4.9
+
+# --- 工具库 ---
+numpy>=1.24,<2.0
+PyYAML>=6.0

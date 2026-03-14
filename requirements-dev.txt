@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# --- 测试框架 ---
+pytest>=8.0
+pytest-qt>=4.4

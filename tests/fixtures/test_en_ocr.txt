@@ -1,0 +1,6 @@
+PaddleOCR Test Image
+Hello World 123456
+OCR Recognition Test
+Table: Name Age | Score
+Alice | 25 | 98.5
+Bob | 30 | 87.0
