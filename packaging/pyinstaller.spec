@@ -23,21 +23,26 @@ cv2_datas, cv2_bins, cv2_hi = collect_all('cv2')
 # tokenizers (Hugging Face) — PP-Chart2Table 模型需要 TokenizerFast
 tok_datas, tok_bins, tok_hi = collect_all('tokenizers')
 
-# 其他依赖
+# PaddleOCR 运行时依赖的 C 扩展和纯 Python 包——一次性全收集
+pyclipper_d, pyclipper_b, pyclipper_h = collect_all('pyclipper')
+shapely_d, shapely_b, shapely_h = collect_all('shapely')
+scipy_d, scipy_b, scipy_h = collect_all('scipy')
+
 extra_hi = collect_submodules('fitz') + collect_submodules('docx') + \
            collect_submodules('openpyxl') + collect_submodules('reportlab') + \
            collect_submodules('lxml') + collect_submodules('PIL') + \
            collect_submodules('numpy') + \
            collect_submodules('yaml') + collect_submodules('ruamel') + \
            collect_submodules('ruamel.yaml') + \
-           collect_submodules('transformers')
+           collect_submodules('transformers') + \
+           collect_submodules('premailer')
 
-all_datas = paddle_datas + paddleocr_datas + paddlex_datas + pyside_datas + cv2_datas + tok_datas + [
+all_datas = paddle_datas + paddleocr_datas + paddlex_datas + pyside_datas + cv2_datas + tok_datas + pyclipper_d + shapely_d + scipy_d + [
     (str(ROOT / "resources"), "resources"),
 ]
-all_binaries = paddle_binaries + paddleocr_bins + paddlex_bins + pyside_bins + cv2_bins + tok_bins
+all_binaries = paddle_binaries + paddleocr_bins + paddlex_bins + pyside_bins + cv2_bins + tok_bins + pyclipper_b + shapely_b + scipy_b
 all_hiddenimports = (
-    paddle_hiddenimports + paddleocr_hi + paddlex_hi + pyside_hi + cv2_hi + tok_hi + extra_hi + [
+    paddle_hiddenimports + paddleocr_hi + paddlex_hi + pyside_hi + cv2_hi + tok_hi + pyclipper_h + shapely_h + scipy_h + extra_hi + [
         'app', 'app.models', 'app.core', 'app.converters', 'app.ui', 'app.utils',
     ]
 )
