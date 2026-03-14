@@ -45,7 +45,7 @@ class FormatCard(QWidget):
         self._is_selected = False
         self.setObjectName("formatCard")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(120, 80)
+        self.setFixedSize(105, 72)
         self.setStyleSheet(_NORMAL_STYLE)
 
         layout = QVBoxLayout(self)

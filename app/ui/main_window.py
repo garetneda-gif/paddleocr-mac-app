@@ -30,8 +30,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("PaddleOCR — 智能文档识别")
-        self.setMinimumSize(780, 520)
-        self.resize(900, 640)
+        self.setMinimumSize(900, 560)
+        self.resize(1100, 720)
 
         self._worker: OCRWorker | None = None
         self._progress_dialog: ProgressDialog | None = None
