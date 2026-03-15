@@ -1,11 +1,13 @@
-"""结构化引擎封装 — 将 PPStructureV3 原始输出标准化为 DocumentResult。"""
+"""结构化引擎封装 — 将 PPStructureV3 原始输出标准化为 DocumentResult。
+
+注意：此模块依赖 PaddlePaddle + paddleocr，仅在安装了这些包时可用。
+ONNX-only 模式下此模块不会被导入。
+"""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
-
-os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
 
 from app.models import BlockResult, BlockType, DocumentResult, PageResult
 
@@ -31,8 +33,13 @@ _LABEL_MAP: dict[str, BlockType] = {
 class StructureEngine:
     """封装 PPStructureV3，提供统一的 predict -> DocumentResult 接口。"""
 
-    def __init__(self, lang: str = "ch") -> None:
+    def __init__(
+        self,
+        lang: str = "ch",
+        options: dict[str, object] | None = None,
+    ) -> None:
         self._lang = lang
+        self._options = {k: v for k, v in (options or {}).items() if v is not None}
         self._pipeline = None
 
     def _ensure_model(self) -> None:
@@ -40,11 +47,13 @@ class StructureEngine:
             return
         from paddleocr import PPStructureV3
 
-        self._pipeline = PPStructureV3(
+        kwargs = dict(
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             lang=self._lang,
         )
+        kwargs.update(self._options)
+        self._pipeline = PPStructureV3(**kwargs)
 
     def predict(self, image_path: Path) -> DocumentResult:
         self._ensure_model()

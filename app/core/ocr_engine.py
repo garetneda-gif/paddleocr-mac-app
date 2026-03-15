@@ -1,11 +1,12 @@
-"""OCR 引擎封装 — 将 PaddleOCR (PP-OCRv5) 原始输出标准化为 DocumentResult。"""
+"""OCR 引擎封装 — 将 PaddleOCR (PP-OCRv5) 原始输出标准化为 DocumentResult。
+
+注意：此模块依赖 PaddlePaddle + paddleocr，仅在安装了这些包时可用。
+ONNX-only 模式下此模块不会被导入（自动回退到 OnnxOCREngine）。
+"""
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-
-os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
 
 from app.models import BlockResult, BlockType, DocumentResult, PageResult
 
@@ -17,9 +18,15 @@ def _bbox_from_polygon(polygon: list) -> tuple[float, float, float, float]:
 
 
 class OCREngine:
-    def __init__(self, lang: str = "ch", speed_mode: str = "server") -> None:
+    def __init__(
+        self,
+        lang: str = "ch",
+        speed_mode: str = "server",
+        options: dict[str, object] | None = None,
+    ) -> None:
         self._lang = lang
         self._speed_mode = speed_mode
+        self._options = {k: v for k, v in (options or {}).items() if v is not None}
         self._ocr = None
 
     def _ensure_model(self) -> None:
@@ -38,6 +45,7 @@ class OCREngine:
             kwargs["text_detection_model_name"] = "PP-OCRv5_mobile_det"
             kwargs["text_recognition_model_name"] = "PP-OCRv5_mobile_rec"
 
+        kwargs.update(self._options)
         self._ocr = PaddleOCR(**kwargs)
 
     def predict(self, image_path: Path) -> DocumentResult:

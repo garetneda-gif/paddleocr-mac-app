@@ -51,7 +51,6 @@ def _subprocess_batch_worker(args_json: str) -> str:
     os.environ["OMP_NUM_THREADS"] = "2"
     os.environ["OPENBLAS_NUM_THREADS"] = "2"
     os.environ["MKL_NUM_THREADS"] = "2"
-    os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
 
     args = json.loads(args_json)
     image_paths = args["image_paths"]
@@ -63,9 +62,15 @@ def _subprocess_batch_worker(args_json: str) -> str:
 
     try:
         if pipeline == "structure":
-            from app.core.structure_engine import StructureEngine
+            try:
+                from app.core.structure_engine import StructureEngine
 
-            engine = StructureEngine(lang=lang, options=options)
+                engine = StructureEngine(lang=lang, options=options)
+            except ImportError:
+                Path(out_path).write_text(json.dumps({
+                    "error": "结构化解析（PPStructureV3）需要 PaddlePaddle，当前环境不可用。请使用 TXT/PDF/RTF 格式输出。"
+                }))
+                return out_path
         else:
             # 优先 ONNX 引擎（无需 PaddlePaddle，更快更省内存）
             engine = None

@@ -18,6 +18,24 @@ _EXTERNAL_ONNX_DIR = Path("/Volumes/MOVESPEED/存储/models/onnx")
 _INTERNAL_ONNX_DIR = Path.home() / ".paddlex" / "onnx_models"
 _CHAR_DICT_PATH = Path("/Volumes/MOVESPEED/存储/models/ppocr_keys_v5.txt")
 
+
+def _resources_dir() -> Path:
+    """返回 resources 目录（支持 PyInstaller frozen 模式）。"""
+    import sys
+
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS) / "resources"
+    return Path(__file__).parent.parent.parent / "resources"
+
+
+def paddle_available() -> bool:
+    """检查 PaddlePaddle 是否可用（用于判断 structure pipeline 是否可用）。"""
+    try:
+        import paddle  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
 # 模型文件名映射
 _MODEL_FILES = {
     "mobile_det": "PP-OCRv5_mobile_det.onnx",
@@ -43,11 +61,14 @@ def _check_path_accessible(path: Path, timeout: float = 2.0) -> bool:
 
 
 def _find_onnx_dir() -> Path | None:
-    """返回包含 ONNX 模型的目录，不存在则返回 None。"""
+    """返回包含 ONNX 模型的目录。搜索顺序：外置硬盘 → 内置缓存 → 打包资源。"""
     if _check_path_accessible(_EXTERNAL_ONNX_DIR):
         return _EXTERNAL_ONNX_DIR
     if _INTERNAL_ONNX_DIR.exists():
         return _INTERNAL_ONNX_DIR
+    bundled = _resources_dir() / "models" / "onnx"
+    if bundled.exists():
+        return bundled
     return None
 
 
@@ -72,8 +93,12 @@ def onnx_available(speed_mode: str = "mobile") -> bool:
 
 def _load_char_dict() -> list[str]:
     """从 ppocr_keys_v5.txt 加载字符字典。"""
-    # 优先外置硬盘，回退内置
-    for candidate in [_CHAR_DICT_PATH, _INTERNAL_ONNX_DIR / "ppocr_keys_v5.txt"]:
+    candidates = [
+        _CHAR_DICT_PATH,
+        _INTERNAL_ONNX_DIR / "ppocr_keys_v5.txt",
+        _resources_dir() / "models" / "ppocr_keys_v5.txt",
+    ]
+    for candidate in candidates:
         if candidate.exists():
             lines = candidate.read_text(encoding="utf-8").splitlines()
             chars = [line for line in lines if line]  # 保留空格等字符

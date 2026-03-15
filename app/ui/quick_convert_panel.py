@@ -206,6 +206,22 @@ class QuickConvertPanel(QWidget):
         self._preserve_layout_check = QCheckBox("TXT/RTF 保留版面结构")
         gl.addWidget(self._preserve_layout_check)
         gl.addWidget(_hint("勾选后 TXT/RTF 导出也走 PPStructureV3，以保留段落和标题层次"))
+
+        # 检查 PaddlePaddle 是否可用，不可用则禁用 PPStructureV3
+        self._paddle_ok = self._check_paddle()
+        if not self._paddle_ok:
+            model = self._pipeline_combo.model()
+            model.item(2).setEnabled(False)  # 禁用 "PPStructureV3" 选项
+            self._preserve_layout_check.setEnabled(False)
+            self._no_paddle_hint = _hint(
+                "⚠ PPStructureV3 不可用（需要 PaddlePaddle）。"
+                "Word/HTML/Excel 输出将使用 ONNX 纯文本模式。"
+            )
+            self._no_paddle_hint.setStyleSheet(
+                "font-size: 11px; color: #e67e22; margin-left: 24px;"
+            )
+            gl.addWidget(self._no_paddle_hint)
+
         adv.addWidget(grp_pipeline)
 
         # ─── 2. 文档预处理 ───
@@ -327,6 +343,8 @@ class QuickConvertPanel(QWidget):
         gs.addWidget(self._use_region_det)
         gs.addWidget(_hint("在版面分析基础上进一步检测图文混排区域，提升复杂版面的解析精度"))
 
+        if not self._paddle_ok:
+            grp_struct.setEnabled(False)
         adv.addWidget(grp_struct)
 
         # ─── 6. 版面分析参数 ───
@@ -369,6 +387,8 @@ class QuickConvertPanel(QWidget):
         gla.addLayout(mr)
         gla.addWidget(_hint("控制如何合并相邻的版面区域。large 适合报纸/杂志等大分栏版面"))
 
+        if not self._paddle_ok:
+            grp_layout.setEnabled(False)
         adv.addWidget(grp_layout)
 
         # ─── 7. 印章检测参数 ───
@@ -407,6 +427,8 @@ class QuickConvertPanel(QWidget):
         gse.addLayout(_spin_row("印章识别置信过滤：", self._seal_rec_thresh))
         gse.addWidget(_hint("低于此值的印章文字识别结果被丢弃"))
 
+        if not self._paddle_ok:
+            grp_seal.setEnabled(False)
         adv.addWidget(grp_seal)
 
         # ─── 8. PDF 输入 ───
@@ -428,6 +450,15 @@ class QuickConvertPanel(QWidget):
         outer.addWidget(scroll)
 
     # ── 事件处理 ──
+
+    @staticmethod
+    def _check_paddle() -> bool:
+        """检查 PaddlePaddle 是否可用。"""
+        try:
+            from app.core.onnx_engine import paddle_available
+            return paddle_available()
+        except Exception:
+            return False
 
     def _on_file_selected(self, path: Path) -> None:
         self._selected_file = path
