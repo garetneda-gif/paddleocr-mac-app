@@ -1,18 +1,53 @@
-"""子进程 OCR — 批量处理 + 并行支持，退出后 OS 回收所有内存。"""
+"""子进程 OCR/结构化解析 — 批量处理 + 并行支持，退出后 OS 回收所有内存。"""
 
 from __future__ import annotations
 
+from concurrent.futures import ProcessPoolExecutor
 import json
 import os
 import tempfile
 from pathlib import Path
-from concurrent.futures import ProcessPoolExecutor
 
-BATCH_SIZE = 50
+BATCH_SIZE = 20
+
+
+def _safe_temp_path(*, suffix: str, prefix: str) -> Path:
+    fd, name = tempfile.mkstemp(suffix=suffix, prefix=prefix)
+    os.close(fd)
+    return Path(name)
+
+
+def _serialize_document_result(result) -> dict[str, object]:
+    pages: list[dict[str, object]] = []
+    for page in result.pages:
+        blocks: list[dict[str, object]] = []
+        for block in page.blocks:
+            blocks.append(
+                {
+                    "block_type": block.block_type.value,
+                    "bbox": [float(v) for v in block.bbox],
+                    "text": block.text,
+                    "confidence": block.confidence,
+                    "html": block.html,
+                    "markdown": block.markdown,
+                    "table_cells": block.table_cells,
+                }
+            )
+        pages.append(
+            {
+                "width": page.width,
+                "height": page.height,
+                "blocks": blocks,
+            }
+        )
+    return {
+        "plain_text": result.plain_text,
+        "pages": pages,
+    }
 
 
 def _subprocess_batch_worker(args_json: str) -> str:
-    """子进程入口：批量 OCR，返回 JSON 结果文件路径。"""
+    """子进程入口：批量执行 OCR 或结构化解析，返回结果文件路径。"""
     os.environ["OMP_NUM_THREADS"] = "2"
     os.environ["OPENBLAS_NUM_THREADS"] = "2"
     os.environ["MKL_NUM_THREADS"] = "2"
@@ -22,42 +57,35 @@ def _subprocess_batch_worker(args_json: str) -> str:
     image_paths = args["image_paths"]
     lang = args["lang"]
     speed_mode = args["speed_mode"]
+    pipeline = args["pipeline"]
+    options = args.get("options", {})
     out_path = args["out_path"]
 
     try:
-        from paddleocr import PaddleOCR
+        if pipeline == "structure":
+            from app.core.structure_engine import StructureEngine
 
-        kwargs = dict(
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            use_textline_orientation=False,
-            lang=lang,
-        )
-        if speed_mode == "mobile":
-            kwargs["text_detection_model_name"] = "PP-OCRv5_mobile_det"
-            kwargs["text_recognition_model_name"] = "PP-OCRv5_mobile_rec"
+            engine = StructureEngine(lang=lang, options=options)
+        else:
+            # 优先 ONNX 引擎（无需 PaddlePaddle，更快更省内存）
+            engine = None
+            try:
+                from app.core.onnx_engine import OnnxOCREngine, onnx_available
 
-        ocr = PaddleOCR(**kwargs)
+                if onnx_available(speed_mode):
+                    engine = OnnxOCREngine(lang=lang, speed_mode=speed_mode, options=options)
+            except Exception:
+                pass
+
+            if engine is None:
+                from app.core.ocr_engine import OCREngine
+
+                engine = OCREngine(lang=lang, speed_mode=speed_mode, options=options)
 
         all_results = []
         for img_path in image_paths:
-            raw_results = list(ocr.predict(img_path))
-            texts = []
-            blocks = []
-            for page_raw in raw_results:
-                if page_raw is None:
-                    continue
-                rec_texts = page_raw.get("rec_texts", [])
-                rec_scores = page_raw.get("rec_scores", [])
-                rec_boxes = page_raw.get("rec_boxes", [])
-                texts.extend(rec_texts)
-                for i, (text, score) in enumerate(zip(rec_texts, rec_scores)):
-                    bbox = [0, 0, 0, 0]
-                    if i < len(rec_boxes) and rec_boxes[i] is not None:
-                        b = rec_boxes[i]
-                        bbox = [float(b[0]), float(b[1]), float(b[2]), float(b[3])]
-                    blocks.append({"text": text, "score": float(score), "bbox": bbox})
-            all_results.append({"texts": texts, "blocks": blocks})
+            result = engine.predict(Path(img_path))
+            all_results.append(_serialize_document_result(result))
 
         Path(out_path).write_text(json.dumps(all_results, ensure_ascii=False))
     except Exception as e:
@@ -68,34 +96,41 @@ def _subprocess_batch_worker(args_json: str) -> str:
 
 def run_ocr_batch(image_paths: list[Path], lang: str, speed_mode: str) -> list[dict]:
     """单批次子进程 OCR（兼容旧接口）。"""
-    return run_ocr_parallel([image_paths], lang, speed_mode, max_workers=1)[0]
+    return run_pipeline_parallel(
+        [image_paths],
+        lang=lang,
+        speed_mode=speed_mode,
+        pipeline="ocr",
+        options={},
+        max_workers=1,
+    )[0]
 
 
-def run_ocr_parallel(
-    batches: list[list[Path]], lang: str, speed_mode: str, max_workers: int = 2
+def run_pipeline_parallel(
+    batches: list[list[Path]],
+    *,
+    lang: str,
+    speed_mode: str,
+    pipeline: str,
+    options: dict[str, object] | None = None,
+    max_workers: int = 2,
 ) -> list[list[dict]]:
-    """并行多批次 OCR，每个批次在独立子进程中运行。
-
-    Args:
-        batches: [[page1, page2, ...], [page3, page4, ...], ...]
-        max_workers: 同时运行的子进程数
-
-    Returns:
-        [[{texts, blocks}, ...], [...], ...]  与 batches 一一对应
-    """
+    """并行多批次执行 OCR 或结构化解析。"""
     import multiprocessing as mp
 
     # 准备每个批次的参数
     task_args = []
     for batch in batches:
-        out_path = tempfile.mktemp(suffix=".json", prefix="pocr_res_")
+        out_path = str(_safe_temp_path(suffix=".json", prefix="pocr_res_"))
         args = {
             "image_paths": [str(p) for p in batch],
             "lang": lang,
             "speed_mode": speed_mode,
+            "pipeline": pipeline,
+            "options": options or {},
             "out_path": out_path,
         }
-        task_args.append(json.dumps(args))
+        task_args.append(json.dumps(args, ensure_ascii=False))
 
     # 用 spawn context 的 ProcessPoolExecutor 并行执行
     ctx = mp.get_context("spawn")
@@ -120,3 +155,17 @@ def run_ocr_parallel(
             results_by_batch.append(raw)
 
     return results_by_batch
+
+
+def run_ocr_parallel(
+    batches: list[list[Path]], lang: str, speed_mode: str, max_workers: int = 2
+) -> list[list[dict]]:
+    """兼容旧接口。"""
+    return run_pipeline_parallel(
+        batches,
+        lang=lang,
+        speed_mode=speed_mode,
+        pipeline="ocr",
+        options={},
+        max_workers=max_workers,
+    )
