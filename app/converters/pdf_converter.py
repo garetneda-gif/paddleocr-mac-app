@@ -103,7 +103,6 @@ class PdfConverter(BaseConverter):
             return
 
         block_h_pt = (y2 - y1) * scale
-        block_w_pt = (x2 - x1) * scale
 
         # 每行分得的垂直空间
         line_h = block_h_pt / len(lines) if len(lines) > 1 else block_h_pt
@@ -112,38 +111,18 @@ class PdfConverter(BaseConverter):
             if not line_text.strip():
                 continue
 
-            # 字号：取行高的 85%，保证不溢出行间距，最小 4pt
-            fontsize = max(line_h * 0.85, 4)
+            # 字号：取行高的 70%，为 ascender/descender 留余量，最小 4pt
+            fontsize = max(line_h * 0.7, 4)
 
-            # 水平方向：用 textbox 以便自动截断超宽文本
-            # 左右各扩展 50% 宽度，防止裁剪
-            pad_x = block_w_pt * 0.5
-            rect = fitz.Rect(
-                x1 * scale - pad_x,
-                y1 * scale + i * line_h,
-                x2 * scale + pad_x,
-                y1 * scale + (i + 1) * line_h,
+            # baseline = 行顶部 + fontsize（PDF 中 baseline 在 ascender 下方）
+            baseline = fitz.Point(
+                x1 * scale,
+                y1 * scale + i * line_h + fontsize,
             )
-
-            rc = pdf_page.insert_textbox(
-                rect,
+            pdf_page.insert_text(
+                baseline,
                 line_text,
                 fontname=fontname,
                 fontsize=fontsize,
                 render_mode=3,  # 不可见但可搜索/选取/复制
-                align=0,  # 左对齐
             )
-
-            # insert_textbox 返回负数表示文本溢出，回退到 insert_text
-            if rc < 0:
-                baseline = fitz.Point(
-                    x1 * scale,
-                    y1 * scale + i * line_h + min(fontsize, line_h * 0.9),
-                )
-                pdf_page.insert_text(
-                    baseline,
-                    line_text,
-                    fontname=fontname,
-                    fontsize=fontsize,
-                    render_mode=3,
-                )
