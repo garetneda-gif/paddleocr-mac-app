@@ -22,8 +22,22 @@ from PySide6.QtWidgets import (
 from app.utils.language_map import LANGUAGES
 from app.utils.paths import default_output_dir
 
+_PADDLEX_CACHE = Path.home() / ".paddlex" / "official_models"
 
-MODEL_CACHE_DIR = Path.home() / ".paddlex" / "official_models"
+
+def _find_model_dirs() -> list[tuple[str, Path]]:
+    """返回所有实际存在的模型目录 [(label, path), ...]。"""
+    dirs: list[tuple[str, Path]] = []
+    try:
+        from app.core.onnx_engine import _find_onnx_dir
+        onnx_dir = _find_onnx_dir()
+        if onnx_dir:
+            dirs.append(("ONNX 模型", onnx_dir))
+    except Exception:
+        pass
+    if _PADDLEX_CACHE.exists():
+        dirs.append(("PaddleX 缓存", _PADDLEX_CACHE))
+    return dirs
 
 
 class SettingsPanel(QWidget):
@@ -117,29 +131,36 @@ class SettingsPanel(QWidget):
             subprocess.run(["open", path])
 
     def _update_cache_info(self) -> None:
-        if MODEL_CACHE_DIR.exists():
-            models = [d for d in MODEL_CACHE_DIR.iterdir() if d.is_dir()]
-            total_size = sum(
-                f.stat().st_size for d in models for f in d.rglob("*") if f.is_file()
-            )
-            size_mb = total_size / (1024 * 1024)
-            self._cache_info.setText(
-                f"缓存路径：{MODEL_CACHE_DIR}\n"
-                f"已缓存模型：{len(models)} 个\n"
-                f"占用空间：{size_mb:.0f} MB"
-            )
-        else:
-            self._cache_info.setText(f"缓存路径：{MODEL_CACHE_DIR}\n尚无缓存模型")
+        dirs = _find_model_dirs()
+        if not dirs:
+            self._cache_info.setText("未找到模型目录")
+            return
+
+        lines: list[str] = []
+        total_size = 0
+        total_models = 0
+        for label, d in dirs:
+            models = [p for p in d.iterdir() if p.is_dir() or p.suffix == ".onnx"]
+            size = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+            total_size += size
+            total_models += len(models)
+            lines.append(f"{label}：{d}")
+
+        size_mb = total_size / (1024 * 1024)
+        lines.append(f"已缓存模型：{total_models} 个")
+        lines.append(f"占用空间：{size_mb:.0f} MB")
+        self._cache_info.setText("\n".join(lines))
 
     def _clear_cache(self) -> None:
         reply = QMessageBox.question(
             self, "确认清除",
-            "清除模型缓存后，下次识别将重新下载模型（约 3GB）。\n确定要清除吗？",
+            "仅清除 PaddleX 缓存（~/.paddlex/official_models）。\n"
+            "ONNX 模型不受影响。确定要清除吗？",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            if MODEL_CACHE_DIR.exists():
-                shutil.rmtree(MODEL_CACHE_DIR)
-                MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            if _PADDLEX_CACHE.exists():
+                shutil.rmtree(_PADDLEX_CACHE)
+                _PADDLEX_CACHE.mkdir(parents=True, exist_ok=True)
             self._update_cache_info()
-            QMessageBox.information(self, "已清除", "模型缓存已清除。")
+            QMessageBox.information(self, "已清除", "PaddleX 模型缓存已清除。")
