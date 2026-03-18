@@ -270,10 +270,10 @@ class QuickConvertPanel(QWidget):
 
         self._det_limit_side = QSpinBox()
         self._det_limit_side.setRange(320, 4096)
-        self._det_limit_side.setValue(960)
+        self._det_limit_side.setValue(2048)
         self._det_limit_side.setSingleStep(32)
         gd.addLayout(_spin_row("检测图像长边限制：", self._det_limit_side, "px"))
-        gd.addWidget(_hint("输入图像会缩放到此尺寸再检测。值越大检测越精细但越慢，默认 960"))
+        gd.addWidget(_hint("输入图像会缩放到此尺寸再检测。值越大检测越精细但越慢，默认 2048"))
 
         self._det_limit_type = QComboBox()
         self._det_limit_type.addItem("max — 限制长边", "max")
@@ -296,11 +296,11 @@ class QuickConvertPanel(QWidget):
 
         self._det_box_thresh = QDoubleSpinBox()
         self._det_box_thresh.setRange(0.01, 1.0)
-        self._det_box_thresh.setValue(0.6)
+        self._det_box_thresh.setValue(0.45)
         self._det_box_thresh.setSingleStep(0.05)
         self._det_box_thresh.setDecimals(2)
         gd.addLayout(_spin_row("文本框置信阈值（box_thresh）：", self._det_box_thresh))
-        gd.addWidget(_hint("检测框的最低平均置信度，低于此值的框被丢弃。调低可保留更多弱文本区域。默认 0.6"))
+        gd.addWidget(_hint("检测框的最低平均置信度，低于此值的框被丢弃。调低可保留更多弱文本区域。默认 0.45"))
 
         self._det_unclip = QDoubleSpinBox()
         self._det_unclip.setRange(0.5, 5.0)
@@ -456,9 +456,9 @@ class QuickConvertPanel(QWidget):
         gpdf = QVBoxLayout(self._pdf_group)
         self._dpi_spin = QSpinBox()
         self._dpi_spin.setRange(72, 600)
-        self._dpi_spin.setValue(400)
+        self._dpi_spin.setValue(200)
         gpdf.addLayout(_spin_row("渲染 DPI：", self._dpi_spin))
-        gpdf.addWidget(_hint("PDF 页面渲染为图片的分辨率。默认 400 适合扫描件提质；清晰电子文档可降到 300，加速时可试 200。最高 600"))
+        gpdf.addWidget(_hint("PDF 页面渲染为图片的分辨率。默认 200 适合大多数场景；扫描件提质可调到 300，最高 600"))
         adv.addWidget(self._pdf_group)
 
         layout.addWidget(self._adv_widget)

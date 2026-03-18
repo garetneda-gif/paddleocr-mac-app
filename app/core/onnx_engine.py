@@ -180,10 +180,10 @@ class DBDetector:
         self,
         onnx_path: Path,
         *,
-        limit_side_len: int = 960,
+        limit_side_len: int = 2048,
         limit_type: str = "max",
         thresh: float = 0.3,
-        box_thresh: float = 0.6,
+        box_thresh: float = 0.45,
         unclip_ratio: float = 1.5,
     ) -> None:
         import onnxruntime as ort
@@ -196,7 +196,7 @@ class DBDetector:
         self.thresh = float(thresh)
         self.box_thresh = float(box_thresh)
         self.unclip_ratio = float(unclip_ratio)
-        self.max_candidates = 1000
+        self.max_candidates = 3000
         self.limit_side_len = max(32, int(limit_side_len))
         self.limit_type = "min" if limit_type == "min" else "max"
 
@@ -477,10 +477,10 @@ class OnnxOCREngine:
 
         self._detector = DBDetector(
             det_path,
-            limit_side_len=int(self._options.get("text_det_limit_side_len", 960)),
+            limit_side_len=int(self._options.get("text_det_limit_side_len", 2048)),
             limit_type=str(self._options.get("text_det_limit_type", "max")),
             thresh=float(self._options.get("text_det_thresh", 0.3)),
-            box_thresh=float(self._options.get("text_det_box_thresh", 0.6)),
+            box_thresh=float(self._options.get("text_det_box_thresh", 0.45)),
             unclip_ratio=float(self._options.get("text_det_unclip_ratio", 1.5)),
         )
         self._recognizer = CRNNRecognizer(
@@ -532,6 +532,9 @@ class OnnxOCREngine:
             return DocumentResult(
                 source_path=image_path, page_count=1, pages=[], plain_text=""
             )
+
+        # BGR→RGB：cv2.imread 默认输出 BGR，而 ImageNet 标准化假设 RGB 输入
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         if self._options.get("use_doc_orientation_classify"):
             img = self._auto_rotate_image(img)

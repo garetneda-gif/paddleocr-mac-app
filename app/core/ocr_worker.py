@@ -26,8 +26,8 @@ def _auto_dpi(page_count: int, user_dpi: int) -> int:
     if page_count <= 50:
         return user_dpi
     if page_count > 200:
-        return min(user_dpi, 100)
-    return min(user_dpi, 150)
+        return min(user_dpi, 150)
+    return min(user_dpi, 200)
 
 
 def _resolve_pipeline(job: OCRJob) -> str:
