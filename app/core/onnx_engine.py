@@ -184,7 +184,7 @@ class DBDetector:
         limit_type: str = "max",
         thresh: float = 0.3,
         box_thresh: float = 0.45,
-        unclip_ratio: float = 1.5,
+        unclip_ratio: float = 2.0,
     ) -> None:
         import onnxruntime as ort
 
@@ -216,8 +216,9 @@ class DBDetector:
                 ratio = self.limit_side_len / min(h, w)
         elif max(h, w) > self.limit_side_len:
             ratio = self.limit_side_len / max(h, w)
-        new_h = max(int(h * ratio / 32) * 32, 32)
-        new_w = max(int(w * ratio / 32) * 32, 32)
+        import math
+        new_h = max(math.ceil(h * ratio / 32) * 32, 32)
+        new_w = max(math.ceil(w * ratio / 32) * 32, 32)
 
         resized = cv2.resize(img, (new_w, new_h))
 
@@ -278,6 +279,20 @@ class DBDetector:
             box[:, 0] *= ratio_w
             box[:, 1] *= ratio_h
             box = self._order_points(box)
+
+            # 扩展检测框边距，防止行尾字符被裁掉
+            bw = max(box[1, 0] - box[0, 0], box[2, 0] - box[3, 0])
+            bh = max(box[3, 1] - box[0, 1], box[2, 1] - box[1, 1])
+            mx = max(8.0, bw * 0.05)
+            my = max(3.0, bh * 0.05)
+            box[0] += [-mx, -my]
+            box[1] += [mx, -my]
+            box[2] += [mx, my]
+            box[3] += [-mx, my]
+            # 裁剪到图像边界内
+            box[:, 0] = np.clip(box[:, 0], 0, src_w)
+            box[:, 1] = np.clip(box[:, 1], 0, src_h)
+
             boxes.append(box)
 
         return boxes
@@ -333,8 +348,11 @@ class CRNNRecognizer:
         self.rec_image_shape = (3, 48, 320)
         self.batch_size = max(1, int(batch_size))
         self.use_textline_orientation = bool(use_textline_orientation)
-        batch_dim = self.session.get_inputs()[0].shape[0]
+        input_shape = self.session.get_inputs()[0].shape
+        batch_dim = input_shape[0]
         self._supports_batched_infer = not isinstance(batch_dim, int) or batch_dim != 1
+        # CRNN 架构（Conv+RNN）天然支持变长输入，无论 ONNX 元数据是否标注动态
+        self._dynamic_width = True
 
     def recognize(self, img: np.ndarray, boxes: list[np.ndarray]) -> list[tuple[str, float]]:
         """识别所有文本框，返回 [(text, score), ...]。"""
@@ -395,13 +413,14 @@ class CRNNRecognizer:
             return np.zeros((1, 3, target_h, target_w), dtype=np.float32)
 
         ratio = target_h / h
-        new_w = min(int(w * ratio), target_w)
-        if new_w < 1:
-            new_w = 1
+        new_w = max(1, int(w * ratio))
+
+        # 动态宽度：按实际宽高比填充，右侧额外 20% 防止 CRNN 边缘解码丢字
+        padded_w = max(target_w, new_w + max(20, int(new_w * 0.2)))
+
         resized = cv2.resize(crop, (new_w, target_h))
 
-        # 填充到 target_w
-        padded = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+        padded = np.zeros((target_h, padded_w, 3), dtype=np.uint8)
         padded[:, :new_w, :] = resized
 
         # PaddleOCR rec 标准化：(x/255 - 0.5) / 0.5
@@ -481,7 +500,7 @@ class OnnxOCREngine:
             limit_type=str(self._options.get("text_det_limit_type", "max")),
             thresh=float(self._options.get("text_det_thresh", 0.3)),
             box_thresh=float(self._options.get("text_det_box_thresh", 0.45)),
-            unclip_ratio=float(self._options.get("text_det_unclip_ratio", 1.5)),
+            unclip_ratio=float(self._options.get("text_det_unclip_ratio", 2.0)),
         )
         self._recognizer = CRNNRecognizer(
             rec_path,
@@ -532,9 +551,6 @@ class OnnxOCREngine:
             return DocumentResult(
                 source_path=image_path, page_count=1, pages=[], plain_text=""
             )
-
-        # BGR→RGB：cv2.imread 默认输出 BGR，而 ImageNet 标准化假设 RGB 输入
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         if self._options.get("use_doc_orientation_classify"):
             img = self._auto_rotate_image(img)

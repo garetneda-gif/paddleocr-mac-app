@@ -304,11 +304,11 @@ class QuickConvertPanel(QWidget):
 
         self._det_unclip = QDoubleSpinBox()
         self._det_unclip.setRange(0.5, 5.0)
-        self._det_unclip.setValue(1.5)
+        self._det_unclip.setValue(2.0)
         self._det_unclip.setSingleStep(0.1)
         self._det_unclip.setDecimals(1)
         gd.addLayout(_spin_row("文本框扩展比例（unclip_ratio）：", self._det_unclip))
-        gd.addWidget(_hint("检测框向外扩展的比例，值越大框越宽松，可包含更多边缘文字。默认 1.5"))
+        gd.addWidget(_hint("检测框向外扩展的比例，值越大框越宽松，可包含更多边缘文字。默认 2.0"))
 
         adv.addWidget(grp_det)
 
