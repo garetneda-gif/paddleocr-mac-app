@@ -81,6 +81,7 @@ def _ocr_options(job: OCRJob) -> dict[str, object]:
 
 def _structure_options(job: OCRJob, speed_mode: str) -> dict[str, object]:
     options = _ocr_options(job)
+    options.pop("return_word_box", None)
     if speed_mode == "mobile":
         options.update(
             {
@@ -91,9 +92,9 @@ def _structure_options(job: OCRJob, speed_mode: str) -> dict[str, object]:
     options.update(
         {
             "use_table_recognition": _get_adv(job, "use_table_recognition", True),
-            "use_formula_recognition": _get_adv(job, "use_formula_recognition", True),
-            "use_chart_recognition": _get_adv(job, "use_chart_recognition", True),
-            "use_seal_recognition": _get_adv(job, "use_seal_recognition", True),
+            "use_formula_recognition": _get_adv(job, "use_formula_recognition", False),
+            "use_chart_recognition": _get_adv(job, "use_chart_recognition", False),
+            "use_seal_recognition": _get_adv(job, "use_seal_recognition", False),
             "use_region_detection": _get_adv(job, "use_region_detection", True),
             "layout_threshold": _get_adv(job, "layout_threshold"),
             "layout_nms": _get_adv(job, "layout_nms"),

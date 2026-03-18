@@ -45,6 +45,7 @@ class StructureEngine:
     def _ensure_model(self) -> None:
         if self._pipeline is not None:
             return
+        os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
         from paddleocr import PPStructureV3
 
         kwargs = dict(

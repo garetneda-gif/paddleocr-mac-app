@@ -112,6 +112,7 @@ def test_word_output_uses_structure_pipeline_and_keeps_absolute_page_index(
     assert captured_call["max_workers"] == 2
     assert captured_call["options"]["use_table_recognition"] is False
     assert captured_call["options"]["text_detection_model_name"] == "PP-OCRv5_mobile_det"
+    assert "return_word_box" not in captured_call["options"]
 
 
 def test_pdf_output_uses_ocr_pipeline_and_passes_ocr_options(monkeypatch, tmp_path):

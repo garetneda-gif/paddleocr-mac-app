@@ -244,3 +244,109 @@ class TestPdfConverter:
         doc.close()
         assert "?" not in text, f"CJK text corrupted to question marks: {text!r}"
         assert "测试中文文本层" in text
+
+    def test_multiline_paragraph_text_layer(self, tmp_path):
+        """多行段落的每一行都必须出现在文字层中。"""
+        import fitz
+
+        result = DocumentResult(
+            source_path=Path(__file__).parent / "fixtures" / "test_en.png",
+            page_count=1,
+            pages=[
+                PageResult(
+                    page_index=0,
+                    width=800,
+                    height=600,
+                    blocks=[
+                        BlockResult(
+                            block_type=BlockType.PARAGRAPH,
+                            bbox=(10.0, 10.0, 700.0, 200.0),
+                            text="First line of paragraph\nSecond line of paragraph\nThird line here",
+                            confidence=0.95,
+                        ),
+                    ],
+                )
+            ],
+            plain_text="First line\nSecond line\nThird line",
+        )
+        out = tmp_path / "multiline.pdf"
+        PdfConverter().convert(result, out)
+
+        doc = fitz.open(str(out))
+        text = doc[0].get_text()
+        doc.close()
+        assert "First line" in text
+        assert "Second line" in text
+        assert "Third line" in text
+
+    def test_mixed_cjk_latin_blocks(self, tmp_path):
+        """中英混合块：每个块使用正确的字体。"""
+        import fitz
+
+        result = DocumentResult(
+            source_path=Path(__file__).parent / "fixtures" / "test_en.png",
+            page_count=1,
+            pages=[
+                PageResult(
+                    page_index=0,
+                    width=800,
+                    height=400,
+                    blocks=[
+                        BlockResult(
+                            block_type=BlockType.TITLE,
+                            bbox=(10.0, 10.0, 400.0, 40.0),
+                            text="English Title",
+                            confidence=0.99,
+                        ),
+                        BlockResult(
+                            block_type=BlockType.PARAGRAPH,
+                            bbox=(10.0, 50.0, 400.0, 80.0),
+                            text="中文段落内容",
+                            confidence=0.95,
+                        ),
+                    ],
+                )
+            ],
+            plain_text="English Title\n中文段落内容",
+        )
+        out = tmp_path / "mixed.pdf"
+        PdfConverter().convert(result, out)
+
+        doc = fitz.open(str(out))
+        text = doc[0].get_text()
+        doc.close()
+        assert "English Title" in text
+        assert "中文段落内容" in text
+        assert "?" not in text
+
+    def test_many_blocks_all_present(self, tmp_path):
+        """大量块都必须出现在文字层中，不能丢失。"""
+        import fitz
+
+        blocks = []
+        for i in range(20):
+            blocks.append(
+                BlockResult(
+                    block_type=BlockType.PARAGRAPH,
+                    bbox=(10.0, 10.0 + i * 30, 700.0, 35.0 + i * 30),
+                    text=f"Block number {i} text content",
+                    confidence=0.9,
+                )
+            )
+
+        result = DocumentResult(
+            source_path=Path(__file__).parent / "fixtures" / "test_en.png",
+            page_count=1,
+            pages=[
+                PageResult(page_index=0, width=800, height=700, blocks=blocks)
+            ],
+            plain_text="\n".join(b.text for b in blocks),
+        )
+        out = tmp_path / "many_blocks.pdf"
+        PdfConverter().convert(result, out)
+
+        doc = fitz.open(str(out))
+        text = doc[0].get_text()
+        doc.close()
+        for i in range(20):
+            assert f"Block number {i}" in text, f"Block {i} missing from text layer"

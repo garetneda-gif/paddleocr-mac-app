@@ -344,17 +344,14 @@ class QuickConvertPanel(QWidget):
         gs.addWidget(_hint("识别文档中的表格并还原为结构化数据（行/列/单元格），导出 Excel/Word 表格的核心功能"))
 
         self._use_formula = QCheckBox("公式识别（use_formula_recognition）")
-        self._use_formula.setChecked(True)
         gs.addWidget(self._use_formula)
         gs.addWidget(_hint("识别数学公式并转为 LaTeX 格式。关闭可加速处理非学术文档"))
 
         self._use_chart = QCheckBox("图表识别（use_chart_recognition）")
-        self._use_chart.setChecked(True)
         gs.addWidget(self._use_chart)
         gs.addWidget(_hint("识别柱状图/饼图/折线图等，转为结构化表格数据。需要 PP-Chart2Table 模型（1.3GB）"))
 
         self._use_seal = QCheckBox("印章识别（use_seal_recognition）")
-        self._use_seal.setChecked(True)
         gs.addWidget(self._use_seal)
         gs.addWidget(_hint("识别圆形/椭圆形印章中的弯曲文字。适合合同、证书等盖章文档"))
 
@@ -456,9 +453,9 @@ class QuickConvertPanel(QWidget):
         gpdf = QVBoxLayout(self._pdf_group)
         self._dpi_spin = QSpinBox()
         self._dpi_spin.setRange(72, 600)
-        self._dpi_spin.setValue(300)
+        self._dpi_spin.setValue(400)
         gpdf.addLayout(_spin_row("渲染 DPI：", self._dpi_spin))
-        gpdf.addWidget(_hint("PDF 页面渲染为图片的分辨率。300 适合正常文档，扫描件可试 200 加速。最高 600"))
+        gpdf.addWidget(_hint("PDF 页面渲染为图片的分辨率。默认 400 适合扫描件提质；清晰电子文档可降到 300，加速时可试 200。最高 600"))
         adv.addWidget(self._pdf_group)
 
         layout.addWidget(self._adv_widget)

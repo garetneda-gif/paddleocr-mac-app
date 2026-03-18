@@ -46,11 +46,25 @@ def _serialize_document_result(result) -> dict[str, object]:
     }
 
 
+def _hide_dock_icon() -> None:
+    """macOS: 将子进程标记为后台进程，防止在 Dock 显示额外图标。"""
+    import sys
+    if sys.platform != "darwin":
+        return
+    try:
+        import AppKit
+        AppKit.NSApplication.sharedApplication().setActivationPolicy_(2)
+    except (ImportError, AttributeError, RuntimeError):
+        pass
+
+
 def _subprocess_batch_worker(args_json: str) -> str:
     """子进程入口：批量执行 OCR 或结构化解析，返回结果文件路径。"""
+    _hide_dock_icon()
     os.environ["OMP_NUM_THREADS"] = "2"
     os.environ["OPENBLAS_NUM_THREADS"] = "2"
     os.environ["MKL_NUM_THREADS"] = "2"
+    os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
 
     args = json.loads(args_json)
     image_paths = args["image_paths"]
