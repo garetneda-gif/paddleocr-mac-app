@@ -44,24 +44,38 @@ class PdfConverter(BaseConverter):
         doc = fitz.open()
 
         source = result.source_path
-        if source.suffix.lower() == ".pdf":
+        is_pdf_input = source.suffix.lower() == ".pdf"
+        if is_pdf_input:
             src_doc = fitz.open(str(source))
         else:
             src_doc = None
 
-        for page_result in result.pages:
-            if src_doc and page_result.page_index < len(src_doc):
-                # PDF 输入：复制原始页面
+        # 建立 page_index → PageResult 映射
+        page_result_map: dict[int, object] = {}
+        for pr in result.pages:
+            page_result_map[pr.page_index] = pr
+
+        if src_doc:
+            # PDF 输入：先复制所有原始页面，再叠加文字层（防止丢页）
+            for pi in range(len(src_doc)):
                 pdf_page = doc.new_page(
-                    width=src_doc[page_result.page_index].rect.width,
-                    height=src_doc[page_result.page_index].rect.height,
+                    width=src_doc[pi].rect.width,
+                    height=src_doc[pi].rect.height,
                 )
-                pdf_page.show_pdf_page(pdf_page.rect, src_doc, page_result.page_index)
+                pdf_page.show_pdf_page(pdf_page.rect, src_doc, pi)
+
+                page_result = page_result_map.get(pi)
+                if page_result is None:
+                    continue
                 scale = pdf_page.rect.width / page_result.width if page_result.width else 1
-            else:
-                # 图片输入：将图片作为背景
+                for block in page_result.blocks:
+                    if not block.text:
+                        continue
+                    self._overlay_block(pdf_page, block, scale)
+        else:
+            # 图片输入
+            for page_result in result.pages:
                 img_path = result.source_path
-                # 转换为 72 DPI 的 PDF 点
                 scale = 72.0 / RENDER_DPI
                 pdf_rect = fitz.Rect(
                     0, 0,
@@ -71,11 +85,10 @@ class PdfConverter(BaseConverter):
                 pdf_page = doc.new_page(width=pdf_rect.width, height=pdf_rect.height)
                 pdf_page.insert_image(pdf_rect, filename=str(img_path))
 
-            # 叠加不可见但可选取的文字层（PDF render_mode=3）
-            for block in page_result.blocks:
-                if not block.text:
-                    continue
-                self._overlay_block(pdf_page, block, scale)
+                for block in page_result.blocks:
+                    if not block.text:
+                        continue
+                    self._overlay_block(pdf_page, block, scale)
 
         if src_doc:
             src_doc.close()

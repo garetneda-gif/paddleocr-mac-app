@@ -11,6 +11,9 @@ from app.core.ocr_subprocess import BATCH_SIZE
 from app.models import BlockResult, BlockType, DocumentResult, PageResult
 from app.models.enums import OutputFormat
 from app.models.job import OCRJob
+from app.utils.log import get_logger
+
+_log = get_logger("ocr_worker")
 
 _WORKER_STACK_SIZE = 64 * 1024 * 1024
 
@@ -155,8 +158,10 @@ class OCRWorker(QThread):
 
     def _do_work(self) -> None:
         job = self._job
+        _log.info("开始处理: %s (格式=%s, 语言=%s)", job.source_path.name, job.output_format.value, job.language)
         is_pdf = job.source_path.suffix.lower() == ".pdf"
         pipeline = _resolve_pipeline(job)
+        _log.info("Pipeline: %s", pipeline)
         text_only = (
             job.output_format in (OutputFormat.TXT, OutputFormat.RTF)
             and pipeline == "ocr"

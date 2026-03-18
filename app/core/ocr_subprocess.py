@@ -4,11 +4,40 @@ from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
 
 BATCH_SIZE = 20
+
+# ─── 单例进程池 ───
+_pool: ProcessPoolExecutor | None = None
+_pool_ctx = None
+
+
+def get_pool(max_workers: int = 2) -> ProcessPoolExecutor:
+    """返回或创建单例进程池（spawn context）。"""
+    import multiprocessing as mp
+
+    global _pool, _pool_ctx
+    if _pool is not None:
+        return _pool
+    _pool_ctx = mp.get_context("spawn")
+    _pool = ProcessPoolExecutor(max_workers=max_workers, mp_context=_pool_ctx)
+    _log.info("创建进程池: max_workers=%d", max_workers)
+    return _pool
+
+
+def shutdown_pool() -> None:
+    """关闭单例进程池（应用退出时调用）。"""
+    global _pool
+    if _pool is not None:
+        _log.info("关闭进程池")
+        _pool.shutdown(wait=False, cancel_futures=True)
+        _pool = None
+
+_log = logging.getLogger("paddleocr.ocr_subprocess")
 
 
 def _safe_temp_path(*, suffix: str, prefix: str) -> Path:
@@ -129,9 +158,7 @@ def run_pipeline_parallel(
     options: dict[str, object] | None = None,
     max_workers: int = 2,
 ) -> list[list[dict]]:
-    """并行多批次执行 OCR 或结构化解析。"""
-    import multiprocessing as mp
-
+    """并行多批次执行 OCR 或结构化解析（复用单例进程池）。"""
     # 准备每个批次的参数
     task_args = []
     for batch in batches:
@@ -146,15 +173,10 @@ def run_pipeline_parallel(
         }
         task_args.append(json.dumps(args, ensure_ascii=False))
 
-    # 用 spawn context 的 ProcessPoolExecutor 并行执行
-    ctx = mp.get_context("spawn")
+    # 复用单例进程池
+    pool = get_pool(max_workers=max(max_workers, 2))
     results_by_batch: list[list[dict]] = []
-
-    with ProcessPoolExecutor(
-        max_workers=min(max_workers, len(batches)),
-        mp_context=ctx,
-    ) as pool:
-        futures = list(pool.map(_subprocess_batch_worker, task_args, timeout=600))
+    futures = list(pool.map(_subprocess_batch_worker, task_args, timeout=600))
 
     for out_path in futures:
         p = Path(out_path)

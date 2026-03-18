@@ -12,8 +12,14 @@ import cv2
 import numpy as np
 
 from app.models import BlockResult, BlockType, DocumentResult, PageResult
+from app.utils.log import get_logger
+
+_log = get_logger("onnx_engine")
 
 # ─── 模型路径 ───────────────────────────────────────────
+import os as _os
+
+_ENV_ONNX_DIR = _os.environ.get("PADDLEOCR_ONNX_DIR")
 _EXTERNAL_ONNX_DIR = Path("/Volumes/MOVESPEED/存储/models/onnx")
 _INTERNAL_ONNX_DIR = Path.home() / ".paddlex" / "onnx_models"
 _CHAR_DICT_PATH = Path("/Volumes/MOVESPEED/存储/models/ppocr_keys_v5.txt")
@@ -75,14 +81,23 @@ def _check_path_accessible(path: Path, timeout: float = 2.0) -> bool:
 
 
 def _find_onnx_dir() -> Path | None:
-    """返回包含 ONNX 模型的目录。搜索顺序：外置硬盘 → 内置缓存 → 打包资源。"""
+    """返回包含 ONNX 模型的目录。搜索顺序：环境变量 → 外置硬盘 → 内置缓存 → 打包资源。"""
+    if _ENV_ONNX_DIR:
+        env_path = Path(_ENV_ONNX_DIR)
+        if env_path.exists():
+            _log.info("使用环境变量 PADDLEOCR_ONNX_DIR: %s", env_path)
+            return env_path
     if _check_path_accessible(_EXTERNAL_ONNX_DIR):
+        _log.info("使用外置硬盘模型: %s", _EXTERNAL_ONNX_DIR)
         return _EXTERNAL_ONNX_DIR
     if _INTERNAL_ONNX_DIR.exists():
+        _log.info("使用内置缓存模型: %s", _INTERNAL_ONNX_DIR)
         return _INTERNAL_ONNX_DIR
     bundled = _resources_dir() / "models" / "onnx"
     if bundled.exists():
+        _log.info("使用打包资源模型: %s", bundled)
         return bundled
+    _log.warning("未找到任何 ONNX 模型目录")
     return None
 
 

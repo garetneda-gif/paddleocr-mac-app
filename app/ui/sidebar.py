@@ -24,7 +24,7 @@ class Sidebar(QWidget):
         layout.addSpacing(16)
 
         self._buttons: list[QPushButton] = []
-        pages = ["转换", "设置"]
+        pages = ["转换", "预览", "设置"]
         for i, title in enumerate(pages):
             btn = QPushButton(title)
             btn.setCheckable(True)

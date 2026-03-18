@@ -63,11 +63,13 @@ def _spin_row(label: str, spin: QSpinBox | QDoubleSpinBox, suffix: str = "") -> 
 
 class QuickConvertPanel(QWidget):
     start_requested = Signal(Path, OutputFormat, str)
+    batch_start_requested = Signal(list, OutputFormat, str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
         self._selected_file: Path | None = None
+        self._selected_files: list[Path] = []
         self._selected_format: OutputFormat = OutputFormat.TXT
         self._paddle_ok = self._check_paddle()
         self._server_onnx_ok = self._check_server_onnx()
@@ -89,6 +91,7 @@ class QuickConvertPanel(QWidget):
         # ── 拖拽区域 ──
         self._drop_zone = DropZone()
         self._drop_zone.file_dropped.connect(self._on_file_selected)
+        self._drop_zone.files_dropped.connect(self._on_files_selected)
         layout.addWidget(self._drop_zone)
 
         # ── 格式卡片 ──
@@ -592,7 +595,17 @@ class QuickConvertPanel(QWidget):
 
     def _on_file_selected(self, path: Path) -> None:
         self._selected_file = path
+        self._selected_files = [path]
         self._drop_zone.set_file_info(path)
+        self._start_btn.setEnabled(True)
+        self._refresh_runtime_options()
+
+    def _on_files_selected(self, paths: list[Path]) -> None:
+        if not paths:
+            return
+        self._selected_files = paths
+        self._selected_file = paths[0]
+        self._drop_zone.set_files_info(paths)
         self._start_btn.setEnabled(True)
         self._refresh_runtime_options()
 
@@ -611,10 +624,13 @@ class QuickConvertPanel(QWidget):
         )
 
     def _on_start(self) -> None:
-        if self._selected_file is None:
+        if not self._selected_files:
             return
         lang = self._lang_combo.currentData()
-        self.start_requested.emit(self._selected_file, self._selected_format, lang)
+        if len(self._selected_files) == 1:
+            self.start_requested.emit(self._selected_files[0], self._selected_format, lang)
+        else:
+            self.batch_start_requested.emit(self._selected_files, self._selected_format, lang)
 
     def get_advanced_params(self) -> dict:
         """供 MainWindow 读取全部高级参数。"""
