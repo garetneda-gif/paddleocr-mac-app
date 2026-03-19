@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from app.converters.base_converter import BaseConverter
-from app.models import BlockResult, DocumentResult
 from app.core.pdf_processor import RENDER_DPI
+from app.models import BlockResult, DocumentResult
+from app.utils.log import get_logger
+
+_log = get_logger("pdf_converter")
 
 # CJK Unicode 范围（中日韩统一表意文字 + 常用扩展）
 _CJK_RANGES = (
@@ -17,6 +21,14 @@ _CJK_RANGES = (
     (0xAC00, 0xD7AF),  # 韩文音节
     (0xFF00, 0xFFEF),  # 全角字符
 )
+_FONT_PROBE_CANDIDATES = ("helv", "china-s", "cour")
+_METRIC_EPSILON = 1e-6
+_MIN_FONT_SIZE = 0.1
+_LEGACY_MIN_FONT_SIZE = 4.0
+
+
+def _is_finite_number(value: float) -> bool:
+    return math.isfinite(value)
 
 
 def _needs_cjk_font(text: str) -> bool:
@@ -33,7 +45,34 @@ def _pick_font(text: str) -> str:
     return "china-s" if _needs_cjk_font(text) else "helv"
 
 
+def _normalize_line_text(text: str) -> str:
+    cleaned = text.replace("\r", "")
+    return "".join(ch for ch in cleaned if ch == "\t" or ch.isprintable())
+
+
+def _legacy_fontsize(line_h: float, width_fit: float | None = None) -> float:
+    fontsize = max(line_h * 0.7, _LEGACY_MIN_FONT_SIZE)
+    if width_fit is not None and _is_finite_number(width_fit) and width_fit > 0:
+        fontsize = min(fontsize, width_fit)
+    return max(fontsize, _MIN_FONT_SIZE)
+
+
+def _is_retryable_font_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    markers = (
+        "glyph",
+        "encoding",
+        "cmap",
+        "unknown font",
+        "cannot encode",
+        "unknown file format",
+    )
+    return any(marker in message for marker in markers)
+
+
 class PdfConverter(BaseConverter):
+    strict_text_layer = False
+
     @property
     def file_extension(self) -> str:
         return ".pdf"
@@ -42,100 +81,357 @@ class PdfConverter(BaseConverter):
         import fitz
 
         doc = fitz.open()
+        font_cache: dict[str, object | None] = {}
+        available_fallback_fonts = self._probe_available_fonts(fitz, font_cache)
+        overlay_error_state = {"count": 0, "samples": []}
 
         source = result.source_path
         is_pdf_input = source.suffix.lower() == ".pdf"
-        if is_pdf_input:
-            src_doc = fitz.open(str(source))
-        else:
-            src_doc = None
+        src_doc = None
+        try:
+            if is_pdf_input:
+                src_doc = fitz.open(str(source))
 
-        # 建立 page_index → PageResult 映射
-        page_result_map: dict[int, object] = {}
-        for pr in result.pages:
-            page_result_map[pr.page_index] = pr
+            # 建立 page_index → PageResult 映射
+            page_result_map: dict[int, object] = {}
+            for pr in result.pages:
+                page_result_map[pr.page_index] = pr
 
-        if src_doc:
-            # PDF 输入：先复制所有原始页面，再叠加文字层（防止丢页）
-            for pi in range(len(src_doc)):
-                pdf_page = doc.new_page(
-                    width=src_doc[pi].rect.width,
-                    height=src_doc[pi].rect.height,
-                )
-                pdf_page.show_pdf_page(pdf_page.rect, src_doc, pi)
+            if src_doc:
+                # PDF 输入：先复制所有原始页面，再叠加文字层（防止丢页）
+                for pi in range(len(src_doc)):
+                    pdf_page = doc.new_page(
+                        width=src_doc[pi].rect.width,
+                        height=src_doc[pi].rect.height,
+                    )
+                    pdf_page.show_pdf_page(pdf_page.rect, src_doc, pi)
 
-                page_result = page_result_map.get(pi)
-                if page_result is None:
-                    continue
-                scale = pdf_page.rect.width / page_result.width if page_result.width else 1
-                for block in page_result.blocks:
-                    if not block.text:
+                    page_result = page_result_map.get(pi)
+                    if page_result is None:
                         continue
-                    self._overlay_block(pdf_page, block, scale)
-        else:
-            # 图片输入
-            for page_result in result.pages:
-                img_path = result.source_path
-                scale = 72.0 / RENDER_DPI
-                pdf_rect = fitz.Rect(
-                    0, 0,
-                    page_result.width * scale,
-                    page_result.height * scale,
+                    scale = pdf_page.rect.width / page_result.width if page_result.width else 1
+                    for block in page_result.blocks:
+                        if not block.text:
+                            continue
+                        self._overlay_block(
+                            pdf_page,
+                            block,
+                            scale,
+                            font_cache=font_cache,
+                            fallback_fonts=available_fallback_fonts,
+                            overlay_error_state=overlay_error_state,
+                        )
+            else:
+                # 图片输入
+                for page_result in result.pages:
+                    img_path = result.source_path
+                    scale = 72.0 / RENDER_DPI
+                    pdf_rect = fitz.Rect(
+                        0, 0,
+                        page_result.width * scale,
+                        page_result.height * scale,
+                    )
+                    pdf_page = doc.new_page(width=pdf_rect.width, height=pdf_rect.height)
+                    pdf_page.insert_image(pdf_rect, filename=str(img_path))
+
+                    for block in page_result.blocks:
+                        if not block.text:
+                            continue
+                        self._overlay_block(
+                            pdf_page,
+                            block,
+                            scale,
+                            font_cache=font_cache,
+                            fallback_fonts=available_fallback_fonts,
+                            overlay_error_state=overlay_error_state,
+                        )
+
+            if overlay_error_state["count"]:
+                preview = "; ".join(overlay_error_state["samples"])
+                message = (
+                    "PDF 文本层存在非法块："
+                    f" count={overlay_error_state['count']} sample={preview}"
                 )
-                pdf_page = doc.new_page(width=pdf_rect.width, height=pdf_rect.height)
-                pdf_page.insert_image(pdf_rect, filename=str(img_path))
+                if self.strict_text_layer:
+                    raise RuntimeError(message)
+                _log.warning(message)
 
-                for block in page_result.blocks:
-                    if not block.text:
-                        continue
-                    self._overlay_block(pdf_page, block, scale)
-
-        if src_doc:
-            src_doc.close()
-
-        doc.save(str(output_path))
-        doc.close()
-        return output_path
+            doc.save(str(output_path))
+            return output_path
+        finally:
+            if src_doc:
+                src_doc.close()
+            doc.close()
 
     @staticmethod
-    def _overlay_block(pdf_page, block: BlockResult, scale: float) -> None:
+    def _get_font(fitz, fontname: str, font_cache: dict[str, object | None]) -> object | None:
+        if fontname in font_cache:
+            return font_cache[fontname]
+        try:
+            font = fitz.Font(fontname)
+        except Exception:
+            font_cache[fontname] = None
+            return None
+        font_cache[fontname] = font
+        return font
+
+    @classmethod
+    def _probe_available_fonts(
+        cls,
+        fitz,
+        font_cache: dict[str, object | None],
+    ) -> tuple[str, ...]:
+        available: list[str] = []
+        for fontname in _FONT_PROBE_CANDIDATES:
+            if cls._get_font(fitz, fontname, font_cache) is not None:
+                available.append(fontname)
+        if available:
+            return tuple(available)
+        # 某些环境下 Font 探测会失败，但内置字体名仍可能可写入。
+        return ("helv", "cour")
+
+    @classmethod
+    def _measure_text_unit_width(
+        cls,
+        fitz,
+        fontname: str,
+        font_cache: dict[str, object | None],
+        text: str,
+    ) -> float | None:
+        if not text:
+            return None
+        try:
+            width = fitz.get_text_length(text, fontname=fontname, fontsize=1)
+        except Exception:
+            font = cls._get_font(fitz, fontname, font_cache)
+            if font is None or not hasattr(font, "text_length"):
+                return None
+            try:
+                width = font.text_length(text, fontsize=1)
+            except Exception:
+                return None
+        if not _is_finite_number(float(width)) or width <= _METRIC_EPSILON:
+            return None
+        return float(width)
+
+    @classmethod
+    def _compute_text_layout(
+        cls,
+        fitz,
+        line_text: str,
+        fontname: str,
+        line_top: float,
+        line_bottom: float,
+        block_w_pt: float,
+        font_cache: dict[str, object | None],
+        *,
+        force_legacy: bool = False,
+    ) -> tuple[float, float]:
+        line_h = line_bottom - line_top
+        width_fit: float | None = None
+        if block_w_pt > _METRIC_EPSILON:
+            unit_width = cls._measure_text_unit_width(
+                fitz, fontname, font_cache, line_text
+            )
+            if unit_width is not None:
+                width_fit = block_w_pt / unit_width
+
+        font = cls._get_font(fitz, fontname, font_cache)
+        ascender: float | None = None
+        descender_abs: float | None = None
+        height_fit: float | None = None
+        if font is not None:
+            raw_ascender = getattr(font, "ascender", None)
+            raw_descender = getattr(font, "descender", None)
+            if raw_ascender is not None and raw_descender is not None:
+                ascender = float(raw_ascender)
+                descender_abs = abs(float(raw_descender))
+                font_height_ratio = ascender + descender_abs
+                if (
+                    _is_finite_number(ascender)
+                    and _is_finite_number(descender_abs)
+                    and _is_finite_number(font_height_ratio)
+                    and ascender > 0
+                    and font_height_ratio > _METRIC_EPSILON
+                ):
+                    height_fit = line_h / font_height_ratio
+                else:
+                    ascender = None
+                    descender_abs = None
+
+        if force_legacy or height_fit is None or not _is_finite_number(height_fit):
+            fontsize = _legacy_fontsize(line_h, width_fit)
+        else:
+            fontsize = height_fit
+            if width_fit is not None and _is_finite_number(width_fit):
+                fontsize = min(fontsize, width_fit)
+            fontsize = max(fontsize, _MIN_FONT_SIZE)
+
+        if ascender is None or descender_abs is None:
+            baseline_y = line_top + fontsize
+        else:
+            baseline_y = line_top + fontsize * ascender
+            max_baseline = line_bottom - fontsize * descender_abs
+            if _is_finite_number(max_baseline):
+                baseline_y = min(baseline_y, max_baseline)
+            baseline_y = max(line_top, baseline_y)
+        return fontsize, baseline_y
+
+    @staticmethod
+    def _iter_font_attempts(
+        preferred_font: str,
+        line_text: str,
+        fallback_fonts: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        ordered = [preferred_font]
+        if _needs_cjk_font(line_text):
+            ordered.extend(["helv", "china-s", "cour"])
+        else:
+            ordered.extend(["helv", "cour", "china-s"])
+
+        attempts: list[str] = []
+        for fontname in ordered:
+            if not fontname:
+                continue
+            if fontname != preferred_font and fontname not in fallback_fonts:
+                continue
+            if fontname not in attempts:
+                attempts.append(fontname)
+        return tuple(attempts)
+
+    @classmethod
+    def _try_insert_line(
+        cls,
+        pdf_page,
+        line_text: str,
+        x_pos: float,
+        line_top: float,
+        line_bottom: float,
+        block_w_pt: float,
+        preferred_font: str,
+        fitz,
+        font_cache: dict[str, object | None],
+        fallback_fonts: tuple[str, ...],
+    ) -> None:
+        last_exc: Exception | None = None
+        font_attempts = cls._iter_font_attempts(preferred_font, line_text, fallback_fonts)
+
+        for fontname in font_attempts:
+            for force_legacy in (False, True):
+                fontsize, baseline_y = cls._compute_text_layout(
+                    fitz,
+                    line_text,
+                    fontname,
+                    line_top,
+                    line_bottom,
+                    block_w_pt,
+                    font_cache,
+                    force_legacy=force_legacy,
+                )
+                baseline = fitz.Point(x_pos, baseline_y)
+                try:
+                    pdf_page.insert_text(
+                        baseline,
+                        line_text,
+                        fontname=fontname,
+                        fontsize=fontsize,
+                        render_mode=3,
+                    )
+                    return
+                except Exception as exc:
+                    last_exc = exc
+                    if getattr(pdf_page, "parent", object()) is None:
+                        raise RuntimeError(
+                            "PDF 文本层写入失败："
+                            f" font={fontname} top={line_top:.2f} kind=page-state"
+                        ) from exc
+                    if not _is_retryable_font_error(exc):
+                        raise RuntimeError(
+                            "PDF 文本层写入失败："
+                            f" font={fontname} top={line_top:.2f} kind=insert"
+                        ) from exc
+                    _log.debug(
+                        "PDF 文本层写入失败，准备降级重试：font=%s legacy=%s err=%s",
+                        fontname,
+                        force_legacy,
+                        exc,
+                    )
+                    if force_legacy:
+                        break
+            # 当前字体的正常/legacy 两次都失败后，继续下一个字体。
+
+        if last_exc is not None:
+            raise RuntimeError(
+                "PDF 文本层写入失败："
+                f" font={preferred_font} top={line_top:.2f}"
+                f" chars={len(line_text)} cjk={_needs_cjk_font(line_text)}"
+            ) from last_exc
+
+    @classmethod
+    def _overlay_block(
+        cls,
+        pdf_page,
+        block: BlockResult,
+        scale: float,
+        *,
+        font_cache: dict[str, object | None] | None = None,
+        fallback_fonts: tuple[str, ...] = (),
+        overlay_error_state: dict[str, object] | None = None,
+    ) -> None:
         """将单个 block 的文本叠加到 PDF 页面上。
 
-        对多行文本逐行插入，每行独立计算字号和位置，
-        确保文本层精确覆盖原始文档的对应区域。
+        当前实现面向轴对齐 bbox。它会按原始分行保留空行占位，
+        但在缺少逐行 bbox / 旋转信息时，无法保证复杂版式的精确覆盖。
         """
         import fitz
 
         x1, y1, x2, y2 = block.bbox
-        fontname = _pick_font(block.text)
+        if font_cache is None:
+            font_cache = {}
+        if overlay_error_state is None:
+            overlay_error_state = {"count": 0, "samples": []}
 
-        # 将 block 的多行文本拆分为单独行
-        lines = block.text.split("\n")
-        lines = [ln for ln in lines if ln.strip()]
-        if not lines:
+        if not all(_is_finite_number(value) for value in (x1, y1, x2, y2, scale)):
+            message = f"invalid-coord bbox={block.bbox} scale={scale}"
+            overlay_error_state["count"] += 1
+            if len(overlay_error_state["samples"]) < 5:
+                overlay_error_state["samples"].append(message)
+            _log.warning("PDF 文本层记录非法坐标块：%s", message)
+            return
+
+        layout_lines = block.text.split("\n")
+        if not layout_lines:
             return
 
         block_h_pt = (y2 - y1) * scale
+        block_w_pt = (x2 - x1) * scale
+        if scale <= _METRIC_EPSILON or block_h_pt <= _METRIC_EPSILON or block_w_pt <= 0:
+            message = f"invalid-size bbox={block.bbox} scale={scale}"
+            overlay_error_state["count"] += 1
+            if len(overlay_error_state["samples"]) < 5:
+                overlay_error_state["samples"].append(message)
+            _log.warning("PDF 文本层记录异常尺寸块：%s", message)
+            return
 
-        # 每行分得的垂直空间
-        line_h = block_h_pt / len(lines) if len(lines) > 1 else block_h_pt
+        line_h = block_h_pt / len(layout_lines)
+        x_pos = x1 * scale
 
-        for i, line_text in enumerate(lines):
+        for i, raw_line in enumerate(layout_lines):
+            line_text = _normalize_line_text(raw_line)
             if not line_text.strip():
                 continue
-
-            # 字号：取行高的 70%，为 ascender/descender 留余量，最小 4pt
-            fontsize = max(line_h * 0.7, 4)
-
-            # baseline = 行顶部 + fontsize（PDF 中 baseline 在 ascender 下方）
-            baseline = fitz.Point(
-                x1 * scale,
-                y1 * scale + i * line_h + fontsize,
-            )
-            pdf_page.insert_text(
-                baseline,
+            line_top = y1 * scale + i * line_h
+            line_bottom = y1 * scale + (i + 1) * line_h
+            preferred_font = _pick_font(line_text)
+            cls._try_insert_line(
+                pdf_page,
                 line_text,
-                fontname=fontname,
-                fontsize=fontsize,
-                render_mode=3,  # 不可见但可搜索/选取/复制
+                x_pos,
+                line_top,
+                line_bottom,
+                block_w_pt,
+                preferred_font,
+                fitz,
+                font_cache,
+                fallback_fonts,
             )
