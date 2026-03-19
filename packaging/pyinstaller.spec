@@ -24,15 +24,8 @@ def _drop_nested_app_bundles(items):
 
 
 def _drop_cv2_ssl_conflict(items):
-    """移除 cv2 自带的 libcrypto/libssl，防止与 Python _ssl 冲突。"""
-    filtered = []
-    for entry in items:
-        parts = [str(p) for p in (entry if isinstance(entry, tuple) else [entry])]
-        combined = " ".join(parts).lower()
-        if "cv2" in combined and ("libcrypto" in combined or "libssl" in combined):
-            continue
-        filtered.append(entry)
-    return filtered
+    """不再使用：保留 cv2 的 SSL 库，后处理中用正确版本覆盖。"""
+    return items
 
 
 def _optional_data(src: Path, dest: str):
@@ -189,10 +182,14 @@ app = BUNDLE(
     },
 )
 
-# ---- 后处理：清除 cv2 自带的 libcrypto/libssl（与 Python _ssl 冲突） ----
-import glob
+# ---- 后处理：用正确版本的 libcrypto/libssl 覆盖 cv2 的旧版 ----
+import glob, shutil
 _app_path = os.path.join(DISTPATH, "PaddleOCR.app")
-for _pat in ["**/cv2*dylibs/libcrypto*", "**/cv2*dylibs/libssl*"]:
-    for _f in glob.glob(os.path.join(_app_path, _pat), recursive=True):
-        os.remove(_f)
-        print(f"POST-BUILD: removed conflicting {_f}")
+_fw_dir = os.path.join(_app_path, "Contents", "Frameworks")
+for _lib in ["libcrypto.3.dylib", "libssl.3.dylib"]:
+    _src = os.path.join(_fw_dir, _lib)
+    if not os.path.exists(_src):
+        continue
+    for _cv2_lib in glob.glob(os.path.join(_app_path, "**", "cv2*dylibs", _lib), recursive=True):
+        shutil.copy2(_src, _cv2_lib)
+        print(f"POST-BUILD: replaced {_cv2_lib} with Frameworks version")
