@@ -174,6 +174,44 @@ class PdfConverter(BaseConverter):
         return font
 
     @classmethod
+    def _get_render_metrics(
+        cls,
+        fitz,
+        fontname: str,
+        font_cache: dict[str, object | None],
+    ) -> tuple[float, float] | None:
+        """获取字体的真实渲染度量（ascender, |descender|）。
+
+        fitz.Font 对象的 ascender/descender 与 insert_text 实际使用的
+        值存在差异（如 china-s: Font 报 1.043/-0.266，实际 1.0/-0.2）。
+        通过在临时页面插入测试文字并读取 span 度量来获取真实值。
+        """
+        cache_key = f"_render_metrics_{fontname}"
+        if cache_key in font_cache:
+            cached = font_cache[cache_key]
+            return cached if cached is not None else None
+        try:
+            probe_doc = fitz.open()
+            probe_page = probe_doc.new_page(width=100, height=100)
+            probe_page.insert_text(
+                fitz.Point(10, 50), "A", fontname=fontname, fontsize=10
+            )
+            for block in probe_page.get_text("dict")["blocks"]:
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        asc = float(span.get("ascender", 0))
+                        desc = abs(float(span.get("descender", 0)))
+                        if asc > 0 and desc > 0:
+                            font_cache[cache_key] = (asc, desc)
+                            probe_doc.close()
+                            return (asc, desc)
+            probe_doc.close()
+        except Exception:
+            pass
+        font_cache[cache_key] = None
+        return None
+
+    @classmethod
     def _probe_available_fonts(
         cls,
         fitz,
@@ -234,36 +272,39 @@ class PdfConverter(BaseConverter):
             if unit_width is not None:
                 width_fit = block_w_pt / unit_width
 
-        font = cls._get_font(fitz, fontname, font_cache)
+        # 优先使用真实渲染度量（通过 probe 获取），回退到 Font 对象值
         ascender: float | None = None
         descender_abs: float | None = None
         height_fit: float | None = None
-        if font is not None:
-            raw_ascender = getattr(font, "ascender", None)
-            raw_descender = getattr(font, "descender", None)
-            if raw_ascender is not None and raw_descender is not None:
-                ascender = float(raw_ascender)
-                descender_abs = abs(float(raw_descender))
-                font_height_ratio = ascender + descender_abs
-                if (
-                    _is_finite_number(ascender)
-                    and _is_finite_number(descender_abs)
-                    and _is_finite_number(font_height_ratio)
-                    and ascender > 0
-                    and font_height_ratio > _METRIC_EPSILON
-                ):
-                    height_fit = line_h / font_height_ratio
-                else:
-                    ascender = None
-                    descender_abs = None
+        render_metrics = cls._get_render_metrics(fitz, fontname, font_cache)
+        if render_metrics is not None:
+            ascender, descender_abs = render_metrics
+        else:
+            font = cls._get_font(fitz, fontname, font_cache)
+            if font is not None:
+                raw_ascender = getattr(font, "ascender", None)
+                raw_descender = getattr(font, "descender", None)
+                if raw_ascender is not None and raw_descender is not None:
+                    ascender = float(raw_ascender)
+                    descender_abs = abs(float(raw_descender))
+        if ascender is not None and descender_abs is not None:
+            font_height_ratio = ascender + descender_abs
+            if (
+                _is_finite_number(ascender)
+                and _is_finite_number(descender_abs)
+                and _is_finite_number(font_height_ratio)
+                and ascender > 0
+                and font_height_ratio > _METRIC_EPSILON
+            ):
+                height_fit = line_h / font_height_ratio
+            else:
+                ascender = None
+                descender_abs = None
 
         if force_legacy or height_fit is None or not _is_finite_number(height_fit):
-            fontsize = _legacy_fontsize(line_h, width_fit)
+            fontsize = _legacy_fontsize(line_h)
         else:
-            fontsize = height_fit
-            if width_fit is not None and _is_finite_number(width_fit):
-                fontsize = min(fontsize, width_fit)
-            fontsize = max(fontsize, _MIN_FONT_SIZE)
+            fontsize = max(height_fit, _MIN_FONT_SIZE)
 
         if ascender is None or descender_abs is None:
             baseline_y = line_top + fontsize
@@ -398,7 +439,7 @@ class PdfConverter(BaseConverter):
             _log.warning("PDF 文本层记录非法坐标块：%s", message)
             return
 
-        layout_lines = block.text.split("\n")
+        layout_lines = [ln for ln in block.text.split("\n") if ln.strip()]
         if not layout_lines:
             return
 
@@ -417,7 +458,7 @@ class PdfConverter(BaseConverter):
 
         for i, raw_line in enumerate(layout_lines):
             line_text = _normalize_line_text(raw_line)
-            if not line_text.strip():
+            if not line_text:
                 continue
             line_top = y1 * scale + i * line_h
             line_bottom = y1 * scale + (i + 1) * line_h
