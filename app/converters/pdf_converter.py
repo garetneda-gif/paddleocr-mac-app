@@ -24,7 +24,6 @@ _CJK_RANGES = (
 _FONT_PROBE_CANDIDATES = ("helv", "china-s", "cour")
 _METRIC_EPSILON = 1e-6
 _MIN_FONT_SIZE = 0.1
-_LEGACY_MIN_FONT_SIZE = 4.0
 
 
 def _is_finite_number(value: float) -> bool:
@@ -50,11 +49,6 @@ def _normalize_line_text(text: str) -> str:
     return "".join(ch for ch in cleaned if ch == "\t" or ch.isprintable())
 
 
-def _legacy_fontsize(line_h: float, width_fit: float | None = None) -> float:
-    fontsize = max(line_h * 0.7, _LEGACY_MIN_FONT_SIZE)
-    if width_fit is not None and _is_finite_number(width_fit) and width_fit > 0:
-        fontsize = min(fontsize, width_fit)
-    return max(fontsize, _MIN_FONT_SIZE)
 
 
 def _is_retryable_font_error(exc: Exception) -> bool:
@@ -174,44 +168,6 @@ class PdfConverter(BaseConverter):
         return font
 
     @classmethod
-    def _get_render_metrics(
-        cls,
-        fitz,
-        fontname: str,
-        font_cache: dict[str, object | None],
-    ) -> tuple[float, float] | None:
-        """获取字体的真实渲染度量（ascender, |descender|）。
-
-        fitz.Font 对象的 ascender/descender 与 insert_text 实际使用的
-        值存在差异（如 china-s: Font 报 1.043/-0.266，实际 1.0/-0.2）。
-        通过在临时页面插入测试文字并读取 span 度量来获取真实值。
-        """
-        cache_key = f"_render_metrics_{fontname}"
-        if cache_key in font_cache:
-            cached = font_cache[cache_key]
-            return cached if cached is not None else None
-        try:
-            probe_doc = fitz.open()
-            probe_page = probe_doc.new_page(width=100, height=100)
-            probe_page.insert_text(
-                fitz.Point(10, 50), "A", fontname=fontname, fontsize=10
-            )
-            for block in probe_page.get_text("dict")["blocks"]:
-                for line in block.get("lines", []):
-                    for span in line.get("spans", []):
-                        asc = float(span.get("ascender", 0))
-                        desc = abs(float(span.get("descender", 0)))
-                        if asc > 0 and desc > 0:
-                            font_cache[cache_key] = (asc, desc)
-                            probe_doc.close()
-                            return (asc, desc)
-            probe_doc.close()
-        except Exception:
-            pass
-        font_cache[cache_key] = None
-        return None
-
-    @classmethod
     def _probe_available_fonts(
         cls,
         fitz,
@@ -260,60 +216,26 @@ class PdfConverter(BaseConverter):
         line_bottom: float,
         block_w_pt: float,
         font_cache: dict[str, object | None],
-        *,
-        force_legacy: bool = False,
     ) -> tuple[float, float]:
+        """宽度优先计算 fontsize 和基线位置（参照 Umi-OCR 方式）。"""
         line_h = line_bottom - line_top
-        width_fit: float | None = None
-        if block_w_pt > _METRIC_EPSILON:
-            unit_width = cls._measure_text_unit_width(
-                fitz, fontname, font_cache, line_text
-            )
-            if unit_width is not None:
-                width_fit = block_w_pt / unit_width
 
-        # 优先使用真实渲染度量（通过 probe 获取），回退到 Font 对象值
-        ascender: float | None = None
-        descender_abs: float | None = None
-        height_fit: float | None = None
-        render_metrics = cls._get_render_metrics(fitz, fontname, font_cache)
-        if render_metrics is not None:
-            ascender, descender_abs = render_metrics
+        # 宽度优先：fontsize = bbox_width / text_length_at_1pt
+        unit_width = cls._measure_text_unit_width(
+            fitz, fontname, font_cache, line_text
+        )
+        if unit_width is not None and block_w_pt > _METRIC_EPSILON:
+            fontsize = block_w_pt / unit_width
         else:
-            font = cls._get_font(fitz, fontname, font_cache)
-            if font is not None:
-                raw_ascender = getattr(font, "ascender", None)
-                raw_descender = getattr(font, "descender", None)
-                if raw_ascender is not None and raw_descender is not None:
-                    ascender = float(raw_ascender)
-                    descender_abs = abs(float(raw_descender))
-        if ascender is not None and descender_abs is not None:
-            font_height_ratio = ascender + descender_abs
-            if (
-                _is_finite_number(ascender)
-                and _is_finite_number(descender_abs)
-                and _is_finite_number(font_height_ratio)
-                and ascender > 0
-                and font_height_ratio > _METRIC_EPSILON
-            ):
-                height_fit = line_h / font_height_ratio
-            else:
-                ascender = None
-                descender_abs = None
+            fontsize = line_h * 0.7  # 回退
 
-        if force_legacy or height_fit is None or not _is_finite_number(height_fit):
-            fontsize = _legacy_fontsize(line_h)
-        else:
-            fontsize = max(height_fit, _MIN_FONT_SIZE)
+        # 高度约束：不超出行高
+        if line_h > _METRIC_EPSILON:
+            fontsize = min(fontsize, line_h)
+        fontsize = max(fontsize, _MIN_FONT_SIZE)
 
-        if ascender is None or descender_abs is None:
-            baseline_y = line_top + fontsize
-        else:
-            baseline_y = line_top + fontsize * ascender
-            max_baseline = line_bottom - fontsize * descender_abs
-            if _is_finite_number(max_baseline):
-                baseline_y = min(baseline_y, max_baseline)
-            baseline_y = max(line_top, baseline_y)
+        # 基线 = 行底部（Umi-OCR 惯例）
+        baseline_y = line_bottom
         return fontsize, baseline_y
 
     @staticmethod
@@ -356,48 +278,42 @@ class PdfConverter(BaseConverter):
         font_attempts = cls._iter_font_attempts(preferred_font, line_text, fallback_fonts)
 
         for fontname in font_attempts:
-            for force_legacy in (False, True):
-                fontsize, baseline_y = cls._compute_text_layout(
-                    fitz,
+            fontsize, baseline_y = cls._compute_text_layout(
+                fitz,
+                line_text,
+                fontname,
+                line_top,
+                line_bottom,
+                block_w_pt,
+                font_cache,
+            )
+            baseline = fitz.Point(x_pos, baseline_y)
+            try:
+                pdf_page.insert_text(
+                    baseline,
                     line_text,
-                    fontname,
-                    line_top,
-                    line_bottom,
-                    block_w_pt,
-                    font_cache,
-                    force_legacy=force_legacy,
+                    fontname=fontname,
+                    fontsize=fontsize,
+                    render_mode=3,
                 )
-                baseline = fitz.Point(x_pos, baseline_y)
-                try:
-                    pdf_page.insert_text(
-                        baseline,
-                        line_text,
-                        fontname=fontname,
-                        fontsize=fontsize,
-                        render_mode=3,
-                    )
-                    return
-                except Exception as exc:
-                    last_exc = exc
-                    if getattr(pdf_page, "parent", object()) is None:
-                        raise RuntimeError(
-                            "PDF 文本层写入失败："
-                            f" font={fontname} top={line_top:.2f} kind=page-state"
-                        ) from exc
-                    if not _is_retryable_font_error(exc):
-                        raise RuntimeError(
-                            "PDF 文本层写入失败："
-                            f" font={fontname} top={line_top:.2f} kind=insert"
-                        ) from exc
-                    _log.debug(
-                        "PDF 文本层写入失败，准备降级重试：font=%s legacy=%s err=%s",
-                        fontname,
-                        force_legacy,
-                        exc,
-                    )
-                    if force_legacy:
-                        break
-            # 当前字体的正常/legacy 两次都失败后，继续下一个字体。
+                return
+            except Exception as exc:
+                last_exc = exc
+                if getattr(pdf_page, "parent", object()) is None:
+                    raise RuntimeError(
+                        "PDF 文本层写入失败："
+                        f" font={fontname} top={line_top:.2f} kind=page-state"
+                    ) from exc
+                if not _is_retryable_font_error(exc):
+                    raise RuntimeError(
+                        "PDF 文本层写入失败："
+                        f" font={fontname} top={line_top:.2f} kind=insert"
+                    ) from exc
+                _log.debug(
+                    "PDF 文本层写入失败，字体回退：font=%s err=%s",
+                    fontname,
+                    exc,
+                )
 
         if last_exc is not None:
             raise RuntimeError(
