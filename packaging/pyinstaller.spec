@@ -176,7 +176,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="PaddleOCR.app",
-    icon=None,
+    icon=os.path.join(ROOT, "resources", "AppIcon.icns"),
     bundle_identifier="com.paddleocr.desktop",
     info_plist={
         "CFBundleDisplayName": "PaddleOCR",

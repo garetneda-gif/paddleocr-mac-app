@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from app.i18n import tr
 from app.ui.theme import (
     ACCENT, ACCENT_LIGHT, BG_PRIMARY, BG_SECONDARY, BORDER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY,
@@ -83,7 +84,7 @@ class ProgressDialog(QDialog):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("正在处理")
+        self.setWindowTitle(tr("progress_title"))
         self.setFixedSize(480, 200)
         # 移除关闭按钮和 Windows ? 帮助按钮
         self.setWindowFlags(
@@ -102,7 +103,7 @@ class ProgressDialog(QDialog):
         layout.setContentsMargins(28, 24, 28, 20)
         layout.setSpacing(10)
 
-        self._stage_label = QLabel("正在初始化模型...")
+        self._stage_label = QLabel(tr("progress_init"))
         self._stage_label.setObjectName("stageLabel")
         layout.addWidget(self._stage_label)
 
@@ -127,7 +128,7 @@ class ProgressDialog(QDialog):
         self._speed_label.setObjectName("detailLabel")
         layout.addWidget(self._speed_label)
 
-        self._cancel_btn = QPushButton("取消")
+        self._cancel_btn = QPushButton(tr("progress_cancel"))
         self._cancel_btn.setObjectName("cancelBtn")
         self._cancel_btn.setFixedWidth(100)
         self._cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -151,14 +152,18 @@ class ProgressDialog(QDialog):
         if total > 0:
             pct = int(page / total * 100)
             self._progress.setValue(pct)
-            self._detail_label.setText(f"第 {page}/{total} 页  ({pct}%)")
+            self._detail_label.setText(
+                tr("progress_page").format(page=page, total=total, pct=pct)
+            )
 
             elapsed = time.monotonic() - self._start_time
             if page > 0 and elapsed > 0.5:
                 speed = page / elapsed
                 remaining = (total - page) / speed if speed > 0 else 0
                 self._speed_label.setText(
-                    f"{speed:.1f} 页/秒  \u2022  预计剩余 {_fmt_duration(remaining)}"
+                    tr("progress_speed").format(
+                        speed=f"{speed:.1f}", remaining=_fmt_duration(remaining)
+                    )
                 )
             else:
                 self._speed_label.setText("")
@@ -174,7 +179,7 @@ class ProgressDialog(QDialog):
         if self._cancelled:
             return
         self._cancelled = True
-        self._stage_label.setText("正在取消...")
+        self._stage_label.setText(tr("progress_cancelling"))
         self._cancel_btn.setEnabled(False)
         self._tick_timer.stop()
         self._progress.setStyleSheet(

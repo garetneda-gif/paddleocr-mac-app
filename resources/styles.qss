@@ -1,4 +1,4 @@
-/* PaddleOCR macOS 桌面应用 — 全局 QSS 主题 */
+/* PaddleOCR macOS 桌面应用 — 全局 QSS 主题 v3 */
 
 QMainWindow {
     background-color: #F5F5F7;
@@ -10,22 +10,27 @@ QMainWindow {
     border-right: 1px solid #E5E5EA;
 }
 
-#sidebar QPushButton {
+#sidebar QPushButton#sidebarNavBtn {
     text-align: left;
-    padding: 10px 14px;
+    padding: 8px 12px;
     border: none;
-    border-radius: 10px;
-    font-size: 14px;
+    border-radius: 8px;
+    border-left: 3px solid transparent;
+    font-size: 13px;
+    font-weight: 500;
     color: #3C3C43;
     background: transparent;
+    margin: 1px 0;
 }
 
-#sidebar QPushButton:hover {
+#sidebar QPushButton#sidebarNavBtn:hover {
     background-color: #F2F2F7;
+    color: #1D1D1F;
 }
 
-#sidebar QPushButton:checked {
+#sidebar QPushButton#sidebarNavBtn:checked {
     background-color: #E8F0FE;
+    border-left: 3px solid transparent;
     color: #1A73E8;
     font-weight: 600;
 }
@@ -33,12 +38,13 @@ QMainWindow {
 /* ── 格式卡片（使用 objectName 选择器） ── */
 QWidget#formatCard {
     background-color: #FFFFFF;
-    border: 2px solid #E5E5EA;
-    border-radius: 12px;
+    border: 1.5px solid #E5E5EA;
+    border-radius: 10px;
 }
 
 QWidget#formatCard:hover {
     border-color: #1A73E8;
+    background-color: #FAFBFF;
 }
 
 /* ── 主按钮 ── */
@@ -60,6 +66,14 @@ QWidget#formatCard:hover {
         x1:0, y1:0, x2:1, y2:0,
         stop:0 #1557B0, stop:1 #3A8CE5
     );
+}
+
+#startButton:pressed {
+    background: qlineargradient(
+        x1:0, y1:0, x2:1, y2:0,
+        stop:0 #0D47A1, stop:1 #1A73E8
+    );
+    padding: 13px 35px;
 }
 
 #startButton:disabled {
@@ -102,6 +116,12 @@ QGroupBox::title {
     color: #3C3C43;
 }
 
+QGroupBox:disabled {
+    color: #AEAEB2;
+    border-color: #F0F0F2;
+    background-color: #FAFAFA;
+}
+
 /* ── 下拉框 ── */
 QComboBox {
     border: 1px solid #E5E5EA;
@@ -114,6 +134,11 @@ QComboBox {
 
 QComboBox:hover {
     border-color: #1A73E8;
+}
+
+QComboBox:focus {
+    border-color: #1A73E8;
+    border-width: 2px;
 }
 
 QComboBox::drop-down {
@@ -134,11 +159,20 @@ QSpinBox:hover, QDoubleSpinBox:hover {
     border-color: #1A73E8;
 }
 
+QSpinBox:focus, QDoubleSpinBox:focus {
+    border-color: #1A73E8;
+    border-width: 2px;
+}
+
 /* ── 复选框 ── */
 QCheckBox {
     font-size: 13px;
     color: #3C3C43;
     spacing: 8px;
+}
+
+QCheckBox:disabled {
+    color: #AEAEB2;
 }
 
 QCheckBox::indicator {
@@ -158,6 +192,11 @@ QCheckBox::indicator:hover {
     border-color: #1A73E8;
 }
 
+QCheckBox::indicator:disabled {
+    border-color: #E5E5EA;
+    background-color: #F5F5F7;
+}
+
 /* ── 滚动区域 ── */
 QScrollArea {
     border: none;
@@ -166,18 +205,18 @@ QScrollArea {
 
 QScrollBar:vertical {
     background: transparent;
-    width: 8px;
-    margin: 0;
+    width: 6px;
+    margin: 2px 1px;
 }
 
 QScrollBar::handle:vertical {
-    background: #C7C7CC;
-    border-radius: 4px;
+    background: rgba(174, 174, 178, 0.5);
+    border-radius: 3px;
     min-height: 30px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: #AEAEB2;
+    background: rgba(174, 174, 178, 0.8);
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
@@ -186,17 +225,18 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 
 QScrollBar:horizontal {
     background: transparent;
-    height: 8px;
+    height: 6px;
+    margin: 1px 2px;
 }
 
 QScrollBar::handle:horizontal {
-    background: #C7C7CC;
-    border-radius: 4px;
+    background: rgba(174, 174, 178, 0.5);
+    border-radius: 3px;
     min-width: 30px;
 }
 
 QScrollBar::handle:horizontal:hover {
-    background: #AEAEB2;
+    background: rgba(174, 174, 178, 0.8);
 }
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
@@ -214,12 +254,25 @@ QPushButton {
 }
 
 QPushButton:hover {
-    background-color: #E5E5EA;
+    background-color: #E8F0FE;
     border-color: #1A73E8;
+    color: #1A73E8;
 }
 
 QPushButton:pressed {
     background-color: #D1D1D6;
+    padding: 7px 15px;
+}
+
+QPushButton:focus {
+    border-color: #1A73E8;
+    border-width: 2px;
+}
+
+QPushButton:disabled {
+    background-color: #F5F5F7;
+    color: #AEAEB2;
+    border-color: #F0F0F2;
 }
 
 /* ── 文本输入框 ── */
@@ -234,6 +287,7 @@ QLineEdit {
 
 QLineEdit:focus {
     border-color: #1A73E8;
+    border-width: 2px;
 }
 
 /* ── 工具提示 ── */
@@ -244,4 +298,17 @@ QToolTip {
     border-radius: 6px;
     padding: 6px 10px;
     font-size: 12px;
+}
+
+/* ── 分割器手柄 ── */
+QSplitter::handle {
+    background-color: #E5E5EA;
+    width: 1px;
+    margin: 40px 4px;
+}
+
+QSplitter::handle:hover {
+    background-color: #1A73E8;
+    width: 3px;
+    margin: 20px 3px;
 }
