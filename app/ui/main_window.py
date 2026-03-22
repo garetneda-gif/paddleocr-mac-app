@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from app.core.export_router import create_default_router
 from app.core.ocr_worker import OCRWorker
+from app.i18n import tr, on_language_changed
 from app.models import DocumentResult
 from app.models.enums import OutputFormat
 from app.models.job import OCRJob
@@ -36,7 +37,7 @@ _log = get_logger("main_window")
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("PaddleOCR — 智能文档识别")
+        self.setWindowTitle(tr("app_title"))
         self.setMinimumSize(900, 560)
         self.resize(1100, 720)
 
@@ -55,6 +56,11 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._load_styles()
         self._setup_shortcuts()
+
+        on_language_changed(self._retranslate)
+
+    def _retranslate(self) -> None:
+        self.setWindowTitle(tr("app_title"))
 
     def _setup_ui(self) -> None:
         central = QWidget()
@@ -175,7 +181,9 @@ class MainWindow(QMainWindow):
 
     def _on_batch_progress(self, stage: str, current: int, total: int) -> None:
         if self._progress_dialog:
-            prefix = f"文件 {self._batch_index + 1}/{len(self._batch_files)}: "
+            prefix = tr("batch_prefix").format(
+                index=self._batch_index + 1, total=len(self._batch_files)
+            )
             self._progress_dialog.update_progress(prefix + stage, current, total)
 
     def _on_batch_file_finished(self, result: DocumentResult) -> None:
@@ -219,26 +227,24 @@ class MainWindow(QMainWindow):
         success_count = sum(1 for _, ok in self._batch_results if ok)
         errors = [fp.name for fp, ok in self._batch_results if not ok]
 
-        if elapsed < 60:
-            time_str = f"{elapsed:.1f} 秒"
-        else:
-            m, s = divmod(int(elapsed), 60)
-            time_str = f"{m} 分 {s} 秒"
+        time_str = self._format_time(elapsed)
 
-        msg = f"批量转换完成  {success_count}/{len(self._batch_files)} 成功  耗时 {time_str}"
+        msg = tr("batch_done_msg").format(
+            success=success_count, total=len(self._batch_files), time=time_str
+        )
         if errors:
-            msg += f"  失败: {', '.join(errors[:3])}"
+            msg += tr("batch_done_fail").format(files=", ".join(errors[:3]))
 
         output_dir = default_output_dir()
-        send_notification("PaddleOCR 批量转换完成", msg)
+        send_notification(tr("batch_notify_title"), msg)
 
         icon = QMessageBox.Icon.Information if not errors else QMessageBox.Icon.Warning
         dlg = QMessageBox(self)
-        dlg.setWindowTitle("批量转换完成")
+        dlg.setWindowTitle(tr("batch_done_title"))
         dlg.setText(msg)
         dlg.setIcon(icon)
-        open_btn = dlg.addButton("打开目录", QMessageBox.ButtonRole.AcceptRole)
-        dlg.addButton("关闭", QMessageBox.ButtonRole.RejectRole)
+        open_btn = dlg.addButton(tr("open_dir"), QMessageBox.ButtonRole.AcceptRole)
+        dlg.addButton(tr("close"), QMessageBox.ButtonRole.RejectRole)
         dlg.exec()
         if dlg.clickedButton() == open_btn:
             self._open_file(output_dir)
@@ -276,26 +282,21 @@ class MainWindow(QMainWindow):
 
             converter.convert(result, output_path)
 
-            # 格式化耗时
-            if elapsed < 60:
-                time_str = f"{elapsed:.1f} 秒"
-            else:
-                m, s = divmod(int(elapsed), 60)
-                time_str = f"{m} 分 {s} 秒"
-
-            page_info = f"{result.page_count} 页" if result.page_count > 1 else ""
+            time_str = self._format_time(elapsed)
+            page_info = tr("page_count").format(count=result.page_count) if result.page_count > 1 else ""
             char_count = len(result.plain_text.replace("\n", "").replace(" ", ""))
 
-            # 弹窗通知 + 系统通知
-            msg = f"转换完成  {time_str}  {page_info}  {char_count} 字"
-            send_notification("PaddleOCR 转换完成", msg)
+            msg = tr("convert_done_msg").format(
+                time=time_str, pages=page_info, chars=char_count
+            )
+            send_notification(tr("notify_done_title"), msg)
 
             dlg = QMessageBox(self)
-            dlg.setWindowTitle("转换完成")
+            dlg.setWindowTitle(tr("convert_done_title"))
             dlg.setText(msg)
             dlg.setIcon(QMessageBox.Icon.Information)
-            open_btn = dlg.addButton("打开文件", QMessageBox.ButtonRole.AcceptRole)
-            dlg.addButton("关闭", QMessageBox.ButtonRole.RejectRole)
+            open_btn = dlg.addButton(tr("open_file"), QMessageBox.ButtonRole.AcceptRole)
+            dlg.addButton(tr("close"), QMessageBox.ButtonRole.RejectRole)
             dlg.exec()
             if dlg.clickedButton() == open_btn:
                 self._open_file(output_path)
@@ -305,7 +306,7 @@ class MainWindow(QMainWindow):
             self._stack.setCurrentIndex(1)
 
         except Exception as e:
-            QMessageBox.critical(self, "导出失败", str(e))
+            QMessageBox.critical(self, tr("export_error"), str(e))
 
     def _on_error(self, msg: str) -> None:
         if self._progress_dialog:
@@ -314,14 +315,20 @@ class MainWindow(QMainWindow):
 
         self._sidebar.set_processing(False)
 
-        # 错误消息可能很长，截断显示
         short_msg = msg[:200] + "..." if len(msg) > 200 else msg
-        QMessageBox.critical(self, "处理出错", short_msg)
-        send_notification("PaddleOCR 处理出错", msg[:100])
+        QMessageBox.critical(self, tr("process_error"), short_msg)
+        send_notification(tr("notify_error_title"), msg[:100])
 
     def _on_cancel(self) -> None:
         if self._worker:
             self._worker.cancel()
+
+    @staticmethod
+    def _format_time(elapsed: float) -> str:
+        if elapsed < 60:
+            return tr("time_seconds").format(seconds=f"{elapsed:.1f}")
+        m, s = divmod(int(elapsed), 60)
+        return tr("time_minutes").format(minutes=m, seconds=s)
 
     def _open_file(self, path: Path) -> None:
         if sys.platform == "darwin":

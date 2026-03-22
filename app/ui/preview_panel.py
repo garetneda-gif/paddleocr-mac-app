@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.i18n import tr, on_language_changed
 from app.models import DocumentResult
 from app.ui.theme import (
     ACCENT, ACCENT_BG, ACCENT_HOVER,
@@ -196,49 +197,46 @@ class PreviewPanel(QWidget):
         empty_layout.setContentsMargins(0, 0, 0, 0)
         empty_layout.addStretch(2)
 
-        empty_title = QLabel("OCR 结果预览")
-        empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        empty_title.setStyleSheet(
+        self._empty_title = QLabel(tr("preview_title"))
+        self._empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_title.setStyleSheet(
             f"font-size: 22px; font-weight: 700; color: {TEXT_PRIMARY}; background: transparent;"
         )
-        empty_layout.addWidget(empty_title)
+        empty_layout.addWidget(self._empty_title)
         empty_layout.addSpacing(6)
 
-        empty_sub = QLabel("完成转换后自动显示识别结果")
-        empty_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        empty_sub.setStyleSheet(
+        self._empty_sub = QLabel(tr("preview_empty_sub"))
+        self._empty_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_sub.setStyleSheet(
             f"font-size: 14px; color: {TEXT_SECONDARY}; background: transparent;"
         )
-        empty_layout.addWidget(empty_sub)
+        empty_layout.addWidget(self._empty_sub)
         empty_layout.addSpacing(20)
 
-        steps = [
-            "1.  在「转换」页选择文件并开始识别",
-            "2.  等待 OCR 处理完成",
-            "3.  结果将在此处自动展示",
-        ]
-        for step_text in steps:
-            step = QLabel(step_text)
+        self._step_labels: list[QLabel] = []
+        for key in ("preview_step_1", "preview_step_2", "preview_step_3"):
+            step = QLabel(tr(key))
             step.setAlignment(Qt.AlignmentFlag.AlignCenter)
             step.setStyleSheet(
                 f"font-size: 13px; color: {TEXT_TERTIARY}; background: transparent; "
                 "padding: 2px 0;"
             )
             empty_layout.addWidget(step)
+            self._step_labels.append(step)
 
         # 空状态快捷按钮
         empty_layout.addSpacing(20)
-        start_btn = QPushButton("选择文件开始转换")
-        start_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        start_btn.setStyleSheet(
+        self._start_btn = QPushButton(tr("preview_start_btn"))
+        self._start_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._start_btn.setStyleSheet(
             f"QPushButton {{ background-color: {ACCENT}; color: white; "
             f"border: none; border-radius: 8px; padding: 10px 24px; "
             f"font-size: 14px; font-weight: 600; }}"
             f"QPushButton:hover {{ background-color: {ACCENT_HOVER}; }}"
         )
-        start_btn.setFixedWidth(200)
-        start_btn.clicked.connect(self._go_to_convert)
-        empty_layout.addWidget(start_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        self._start_btn.setFixedWidth(200)
+        self._start_btn.clicked.connect(self._go_to_convert)
+        empty_layout.addWidget(self._start_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         empty_layout.addStretch(3)
         layout.addWidget(self._empty_widget, 1)
@@ -257,12 +255,12 @@ class PreviewPanel(QWidget):
         toolbar_layout.setContentsMargins(14, 8, 14, 8)
         toolbar_layout.setSpacing(8)
 
-        title = QLabel("OCR 结果预览")
-        title.setStyleSheet(
+        self._title_label = QLabel(tr("preview_title"))
+        self._title_label.setStyleSheet(
             f"font-size: 15px; font-weight: 600; color: {TEXT_PRIMARY}; "
             "background: transparent; border: none;"
         )
-        toolbar_layout.addWidget(title)
+        toolbar_layout.addWidget(self._title_label)
 
         self._page_badge = QLabel()
         self._page_badge.setStyleSheet(
@@ -277,19 +275,19 @@ class PreviewPanel(QWidget):
 
         # 搜索框
         self._search_input = QLineEdit()
-        self._search_input.setPlaceholderText("搜索文本...")
+        self._search_input.setPlaceholderText(tr("preview_search_placeholder"))
         self._search_input.setStyleSheet(_SEARCH_STYLE)
         self._search_input.setFixedWidth(160)
         self._search_input.setVisible(False)
         self._search_input.textChanged.connect(self._on_search)
         toolbar_layout.addWidget(self._search_input)
 
-        search_btn = QPushButton("搜索")
-        search_btn.setStyleSheet(_NAV_BTN_STYLE)
-        search_btn.setFixedSize(48, 28)
-        search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        search_btn.clicked.connect(self._toggle_search)
-        toolbar_layout.addWidget(search_btn)
+        self._search_btn = QPushButton(tr("preview_search_btn"))
+        self._search_btn.setStyleSheet(_NAV_BTN_STYLE)
+        self._search_btn.setFixedSize(48, 28)
+        self._search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._search_btn.clicked.connect(self._toggle_search)
+        toolbar_layout.addWidget(self._search_btn)
 
         # 字数统计
         self._char_count_label = QLabel()
@@ -300,7 +298,7 @@ class PreviewPanel(QWidget):
         toolbar_layout.addWidget(self._char_count_label)
 
         # 复制全文按钮
-        self._copy_btn = QPushButton("复制全文")
+        self._copy_btn = QPushButton(tr("preview_copy_all"))
         self._copy_btn.setStyleSheet(_COPY_BTN_STYLE)
         self._copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._copy_btn.clicked.connect(self._copy_all_text)
@@ -387,12 +385,12 @@ class PreviewPanel(QWidget):
         zoom_in_btn.clicked.connect(self._zoom_in)
         zoom_row.addWidget(zoom_in_btn)
 
-        zoom_fit_btn = QPushButton("适应")
-        zoom_fit_btn.setFixedSize(40, 24)
-        zoom_fit_btn.setStyleSheet(_NAV_BTN_STYLE)
-        zoom_fit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        zoom_fit_btn.clicked.connect(self._zoom_fit)
-        zoom_row.addWidget(zoom_fit_btn)
+        self._zoom_fit_btn = QPushButton(tr("preview_zoom_fit"))
+        self._zoom_fit_btn.setFixedSize(40, 24)
+        self._zoom_fit_btn.setStyleSheet(_NAV_BTN_STYLE)
+        self._zoom_fit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._zoom_fit_btn.clicked.connect(self._zoom_fit)
+        zoom_row.addWidget(self._zoom_fit_btn)
 
         zoom_row.addStretch()
         left_layout.addLayout(zoom_row)
@@ -432,19 +430,31 @@ class PreviewPanel(QWidget):
         # 键盘快捷键
         self._setup_shortcuts()
 
+        on_language_changed(self._retranslate)
+
+    def _retranslate(self) -> None:
+        self._empty_title.setText(tr("preview_title"))
+        self._empty_sub.setText(tr("preview_empty_sub"))
+        step_keys = ("preview_step_1", "preview_step_2", "preview_step_3")
+        for label, key in zip(self._step_labels, step_keys):
+            label.setText(tr(key))
+        self._start_btn.setText(tr("preview_start_btn"))
+        self._title_label.setText(tr("preview_title"))
+        self._search_input.setPlaceholderText(tr("preview_search_placeholder"))
+        self._search_btn.setText(tr("preview_search_btn"))
+        self._copy_btn.setText(tr("preview_copy_all"))
+        self._zoom_fit_btn.setText(tr("preview_zoom_fit"))
+
     def _setup_shortcuts(self) -> None:
         """设置键盘快捷键。"""
-        # 翻页
         left = QShortcut(QKeySequence(Qt.Key.Key_Left), self)
         left.activated.connect(self._prev_page)
         right = QShortcut(QKeySequence(Qt.Key.Key_Right), self)
         right.activated.connect(self._next_page)
 
-        # 搜索 Cmd+F
         find = QShortcut(QKeySequence.StandardKey.Find, self)
         find.activated.connect(self._toggle_search)
 
-        # 字体大小 Cmd+/Cmd-
         zoom_in = QShortcut(QKeySequence.StandardKey.ZoomIn, self)
         zoom_in.activated.connect(self._increase_font)
         zoom_out = QShortcut(QKeySequence.StandardKey.ZoomOut, self)
@@ -477,7 +487,7 @@ class PreviewPanel(QWidget):
 
         # 异步加载页面图片
         self._page_images = [QPixmap()] * len(result.pages)
-        self._image_label.setText("正在加载预览图...")
+        self._image_label.setText(tr("preview_loading"))
         self._image_label.setStyleSheet(
             f"color: {TEXT_TERTIARY}; font-size: 14px; background: transparent;"
         )
@@ -491,7 +501,7 @@ class PreviewPanel(QWidget):
 
         total = len(result.pages) if result.pages else 0
         if total > 1:
-            self._page_badge.setText(f"{total} 页")
+            self._page_badge.setText(tr("preview_pages").format(count=total))
             self._page_badge.setVisible(True)
         else:
             self._page_badge.setVisible(False)
@@ -544,7 +554,9 @@ class PreviewPanel(QWidget):
             len(b.text.replace("\n", "").replace(" ", ""))
             for p in self._result.pages for b in p.blocks if b.text
         )
-        self._char_count_label.setText(f"{char_count:,} / {total_chars:,} 字")
+        self._char_count_label.setText(
+            tr("preview_char_count").format(page_chars=char_count, total_chars=total_chars)
+        )
 
     def _update_image(self) -> None:
         """根据当前缩放更新图片显示。"""
@@ -559,7 +571,7 @@ class PreviewPanel(QWidget):
             self._image_label.setPixmap(scaled)
             self._zoom_label.setText(f"{int(self._zoom_factor * 100)}%")
         else:
-            self._image_label.setText("正在加载预览图...")
+            self._image_label.setText(tr("preview_loading"))
             self._image_label.setStyleSheet(
                 f"color: {TEXT_TERTIARY}; font-size: 14px; background: transparent;"
             )
@@ -587,7 +599,6 @@ class PreviewPanel(QWidget):
 
     def _on_search(self, text: str) -> None:
         """搜索高亮。"""
-        # 清除旧高亮
         cursor = self._text_edit.textCursor()
         cursor.select(cursor.SelectionType.Document)
         fmt_normal = QTextCharFormat()
@@ -598,7 +609,6 @@ class PreviewPanel(QWidget):
         if not text:
             return
 
-        # 高亮匹配
         fmt_highlight = QTextCharFormat()
         fmt_highlight.setBackground(QColor(ACCENT_BG))
         fmt_highlight.setForeground(QColor(ACCENT))
@@ -635,9 +645,9 @@ class PreviewPanel(QWidget):
                 if block.text:
                     all_texts.append(block.text)
         QApplication.clipboard().setText("\n\n".join(all_texts))
-        self._copy_btn.setText("已复制")
+        self._copy_btn.setText(tr("preview_copied"))
         from PySide6.QtCore import QTimer
-        QTimer.singleShot(1500, lambda: self._copy_btn.setText("复制全文"))
+        QTimer.singleShot(1500, lambda: self._copy_btn.setText(tr("preview_copy_all")))
 
     def _prev_page(self) -> None:
         self._show_page(self._current_page - 1)

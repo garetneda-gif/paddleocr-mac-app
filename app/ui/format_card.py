@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QGraphicsDropShadowEffect, QLabel, QVBoxLayout, QWidget,
 )
 
+from app.i18n import tr, on_language_changed
 from app.models.enums import OutputFormat
 from app.ui.theme import (
     ACCENT, ACCENT_BG, BG_PRIMARY, BORDER, TEXT_PRIMARY, TEXT_SECONDARY,
@@ -15,12 +16,12 @@ from app.ui.theme import (
 )
 
 _FORMAT_INFO: dict[OutputFormat, tuple[str, str]] = {
-    OutputFormat.TXT: ("TXT", "纯文本"),
-    OutputFormat.PDF: ("PDF", "可搜索 PDF"),
-    OutputFormat.WORD: ("Word", "保留版面结构"),
-    OutputFormat.HTML: ("HTML", "网页格式"),
-    OutputFormat.EXCEL: ("Excel", "表格数据"),
-    OutputFormat.RTF: ("RTF", "富文本格式"),
+    OutputFormat.TXT: ("TXT", "fmt_txt"),
+    OutputFormat.PDF: ("PDF", "fmt_pdf"),
+    OutputFormat.WORD: ("Word", "fmt_word"),
+    OutputFormat.HTML: ("HTML", "fmt_html"),
+    OutputFormat.EXCEL: ("Excel", "fmt_excel"),
+    OutputFormat.RTF: ("RTF", "fmt_rtf"),
 }
 
 _NORMAL_STYLE = f"""
@@ -86,7 +87,7 @@ class FormatCard(QWidget):
         layout.setSpacing(2)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        title, desc = _FORMAT_INFO.get(fmt, (fmt.value.upper(), ""))
+        title, desc_key = _FORMAT_INFO.get(fmt, (fmt.value.upper(), ""))
 
         # 格式图标
         icon_text = FORMAT_ICONS.get(title, title[0])
@@ -102,7 +103,8 @@ class FormatCard(QWidget):
         layout.addWidget(self._title_label)
 
         # 描述
-        self._desc_label = QLabel(desc)
+        self._desc_key = desc_key
+        self._desc_label = QLabel(tr(desc_key) if desc_key else "")
         self._desc_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._desc_label.setStyleSheet(_DESC_NORMAL)
         layout.addWidget(self._desc_label)
@@ -114,6 +116,12 @@ class FormatCard(QWidget):
         self._shadow.setOffset(x, y)
         self._shadow.setColor(QColor(0, 0, 0, int(255 * opacity)))
         self.setGraphicsEffect(self._shadow)
+
+        on_language_changed(self._retranslate)
+
+    def _retranslate(self) -> None:
+        if self._desc_key:
+            self._desc_label.setText(tr(self._desc_key))
 
     def mousePressEvent(self, event):
         self.selected.emit(self._fmt)

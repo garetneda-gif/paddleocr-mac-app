@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from PySide6.QtCore import QTimer
 
+from app.i18n import tr, on_language_changed
 from app.models.enums import OutputFormat
 from app.ui.drop_zone import DropZone
 from app.ui.format_card import FormatCard
@@ -73,9 +74,9 @@ class QuickConvertPanel(QWidget):
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(14)
 
-        title = QLabel("快速转换")
-        title.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {ACCENT};")
-        layout.addWidget(title)
+        self._title_label = QLabel(tr("convert_title"))
+        self._title_label.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {ACCENT};")
+        layout.addWidget(self._title_label)
 
         # ── 拖拽区域 ──
         self._drop_zone = DropZone()
@@ -84,9 +85,9 @@ class QuickConvertPanel(QWidget):
         layout.addWidget(self._drop_zone)
 
         # ── 格式卡片 ──
-        fmt_label = QLabel("选择输出格式：")
-        fmt_label.setStyleSheet(f"font-size: 13px; color: {TEXT_SECONDARY};")
-        layout.addWidget(fmt_label)
+        self._fmt_label = QLabel(tr("select_output_format"))
+        self._fmt_label.setStyleSheet(f"font-size: 13px; color: {TEXT_SECONDARY};")
+        layout.addWidget(self._fmt_label)
 
         fmt_layout = QHBoxLayout()
         fmt_layout.setSpacing(10)
@@ -102,7 +103,8 @@ class QuickConvertPanel(QWidget):
 
         # ── 语言 + 开始 ──
         bottom = QHBoxLayout()
-        bottom.addWidget(QLabel("识别语言："))
+        self._lang_label = QLabel(tr("ocr_language"))
+        bottom.addWidget(self._lang_label)
         self._lang_combo = QComboBox()
         # 初始填充全部语言，延迟检查后会按后端过滤
         for code, name in LANGUAGES.items():
@@ -110,46 +112,46 @@ class QuickConvertPanel(QWidget):
         self._lang_combo.setFixedWidth(200)
         bottom.addWidget(self._lang_combo)
         bottom.addSpacing(20)
-        bottom.addWidget(QLabel("模式："))
+        self._mode_label = QLabel(tr("mode_label"))
+        bottom.addWidget(self._mode_label)
         self._speed_combo = QComboBox()
-        self._speed_combo.addItem("均衡（Server 模型）", "server")
-        self._speed_combo.addItem("速度优先（Mobile 模型，快 8x）", "mobile")
+        self._speed_combo.addItem(tr("mode_balanced"), "server")
+        self._speed_combo.addItem(tr("mode_speed"), "mobile")
         self._speed_combo.setFixedWidth(260)
-        self._speed_combo.setToolTip("不同模式会切换不同 ONNX 模型；Server 更准，Mobile 更省内存")
+        self._speed_combo.setToolTip(tr("mode_tooltip"))
         bottom.addWidget(self._speed_combo)
 
         bottom.addStretch()
-        self._start_btn = QPushButton("开始转换")
+        self._start_btn = QPushButton(tr("start_convert"))
         self._start_btn.setObjectName("startButton")
         self._start_btn.setEnabled(False)
-        self._start_btn.setToolTip("请先选择文件")
+        self._start_btn.setToolTip(tr("select_file_first"))
         self._start_btn.clicked.connect(self._on_start)
         bottom.addWidget(self._start_btn)
         layout.addLayout(bottom)
 
         # ── 并行 + 强制 OCR ──
         parallel_row = QHBoxLayout()
-        parallel_row.addWidget(QLabel("并行进程数："))
+        self._parallel_label = QLabel(tr("parallel_workers"))
+        parallel_row.addWidget(self._parallel_label)
         self._parallel_spin = QSpinBox()
         self._parallel_spin.setRange(1, 4)
         self._parallel_spin.setValue(2)
         self._parallel_spin.setFixedWidth(60)
-        self._parallel_spin.setToolTip("同时运行的 OCR 子进程数量。2 适合大多数情况，增大可加速但消耗更多内存")
+        self._parallel_spin.setToolTip(tr("parallel_tooltip"))
         parallel_row.addWidget(self._parallel_spin)
         parallel_row.addSpacing(20)
 
-        self._force_ocr_check = QCheckBox("强制 OCR（忽略 PDF 已有文字层）")
-        self._force_ocr_check.setToolTip(
-            "默认会自动检测 PDF 是否有文字层，有则直接提取（毫秒级）。\n"
-            "勾选此项可强制重新 OCR，适合文字层不准确需要重新识别的场景。"
-        )
+        self._force_ocr_check = QCheckBox(tr("force_ocr"))
+        self._force_ocr_check.setToolTip(tr("force_ocr_tooltip"))
         parallel_row.addWidget(self._force_ocr_check)
         parallel_row.addStretch()
         layout.addLayout(parallel_row)
 
         # ── PDF 页码范围 ──
         page_row = QHBoxLayout()
-        page_row.addWidget(QLabel("PDF 页码范围："))
+        self._page_range_label = QLabel(tr("pdf_page_range"))
+        page_row.addWidget(self._page_range_label)
         self._page_start = QSpinBox()
         self._page_start.setRange(1, 9999)
         self._page_start.setValue(1)
@@ -162,14 +164,15 @@ class QuickConvertPanel(QWidget):
         self._page_end.setFixedWidth(80)
         self._page_end.setToolTip("设为 9999 表示处理到最后一页")
         page_row.addWidget(self._page_end)
-        page_row.addWidget(_hint("大 PDF 建议先处理部分页面测试效果。>50 页自动降 DPI"))
+        self._page_hint = _hint(tr("pdf_page_hint"))
+        page_row.addWidget(self._page_hint)
         page_row.addStretch()
         layout.addLayout(page_row)
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 折叠高级选项
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        self._adv_toggle = QPushButton("▶ 高级选项（按当前引擎生效）")
+        self._adv_toggle = QPushButton(tr("advanced_collapsed"))
         self._adv_toggle.setStyleSheet(
             f"QPushButton {{ border: none; color: {ACCENT}; font-size: 13px; "
             "text-align: left; padding: 4px 0; } "
@@ -186,40 +189,34 @@ class QuickConvertPanel(QWidget):
         adv.setSpacing(12)
 
         # ─── 1. Pipeline 选择 ───
-        self._pipeline_group = QGroupBox("识别模式")
+        self._pipeline_group = QGroupBox(tr("pipeline_group"))
         gl = QVBoxLayout(self._pipeline_group)
         pl_row = QHBoxLayout()
-        pl_row.addWidget(QLabel("Pipeline："))
+        pl_row.addWidget(QLabel(tr("pipeline_label")))
         self._pipeline_combo = QComboBox()
-        self._pipeline_combo.addItem("自动（按输出格式决定）", "auto")
-        self._pipeline_combo.addItem("OCR（ONNX Runtime / Paddle）", "ocr")
-        self._pipeline_combo.addItem("PPStructureV3（结构化解析）", "structure")
+        self._pipeline_combo.addItem(tr("pipeline_auto"), "auto")
+        self._pipeline_combo.addItem(tr("pipeline_ocr"), "ocr")
+        self._pipeline_combo.addItem(tr("pipeline_structure"), "structure")
         self._pipeline_combo.setFixedWidth(280)
         pl_row.addWidget(self._pipeline_combo)
         pl_row.addStretch()
         gl.addLayout(pl_row)
-        gl.addWidget(
-            _hint(
-                "自动模式：TXT/PDF/RTF 走 OCR；Word/HTML/Excel 优先结构化。"
-                "若结构化后端不可用，会降级为纯文本 OCR 导出。"
-            )
-        )
+        self._pipeline_hint = _hint(tr("pipeline_auto_hint"))
+        gl.addWidget(self._pipeline_hint)
 
-        self._preserve_layout_check = QCheckBox("TXT/RTF 保留版面结构")
+        self._preserve_layout_check = QCheckBox(tr("preserve_layout"))
         gl.addWidget(self._preserve_layout_check)
-        gl.addWidget(_hint("勾选后 TXT/RTF 导出也走 PPStructureV3，以保留段落和标题层次"))
+        self._preserve_layout_hint = _hint(tr("preserve_layout_hint"))
+        gl.addWidget(self._preserve_layout_hint)
 
-        self._no_paddle_hint = _hint(
-            "⚠ PPStructureV3 不可用（需要 PaddlePaddle）。"
-            "Word/HTML/Excel 将降级为纯文本 OCR 导出。"
-        )
+        self._no_paddle_hint = _hint(tr("no_paddle_hint"))
         self._no_paddle_hint.setStyleSheet(
             f"font-size: 11px; color: {WARNING}; margin-left: 24px;"
         )
         self._no_paddle_hint.setVisible(False)
         gl.addWidget(self._no_paddle_hint)
 
-        self._onnx_lang_hint = _hint("当前仅提供 ONNX 可用语言：中文、英文。")
+        self._onnx_lang_hint = _hint(tr("onnx_lang_hint"))
         self._onnx_lang_hint.setStyleSheet(
             f"font-size: 11px; color: {ACCENT}; margin-left: 24px;"
         )
@@ -232,125 +229,128 @@ class QuickConvertPanel(QWidget):
         adv.addWidget(self._pipeline_group)
 
         # ─── 2. 文档预处理 ───
-        grp_preproc = QGroupBox("文档预处理")
-        gp = QVBoxLayout(grp_preproc)
+        self._preproc_group = QGroupBox(tr("preprocess_group"))
+        gp = QVBoxLayout(self._preproc_group)
 
-        self._orientation_check = QCheckBox("文档方向检测与校正（use_doc_orientation_classify）")
+        self._orientation_check = QCheckBox(tr("orientation_check"))
         gp.addWidget(self._orientation_check)
-        gp.addWidget(_hint("自动检测文档是否旋转了 90°/180°/270° 并校正到正向，适合扫描件方向不确定的场景"))
+        self._orientation_hint = _hint(tr("orientation_hint"))
+        gp.addWidget(self._orientation_hint)
 
-        self._unwarp_check = QCheckBox("文档弯曲矫正（use_doc_unwarping）")
+        self._unwarp_check = QCheckBox(tr("unwarp_check"))
         gp.addWidget(self._unwarp_check)
-        gp.addWidget(_hint("对手机拍摄的弯曲/透视变形文档做几何校正。当前 ONNX OCR 不支持时会自动禁用"))
+        self._unwarp_hint_label = _hint(tr("unwarp_hint"))
+        gp.addWidget(self._unwarp_hint_label)
 
-        self._textline_ori_check = QCheckBox("文本行方向检测（use_textline_orientation）")
+        self._textline_ori_check = QCheckBox(tr("textline_ori_check"))
         gp.addWidget(self._textline_ori_check)
-        gp.addWidget(_hint("检测每行文字是横排还是竖排并分别处理，适合竖排文档。ONNX OCR 与 PaddleOCR 都会消费该项"))
-        adv.addWidget(grp_preproc)
+        self._textline_ori_hint = _hint(tr("textline_ori_hint"))
+        gp.addWidget(self._textline_ori_hint)
+        adv.addWidget(self._preproc_group)
 
         # ─── 3. 文本检测参数 ───
-        grp_det = QGroupBox("文本检测参数（OCR）")
-        gd = QVBoxLayout(grp_det)
+        self._det_group = QGroupBox(tr("det_group"))
+        gd = QVBoxLayout(self._det_group)
 
         self._det_limit_side = QSpinBox()
         self._det_limit_side.setRange(320, 4096)
         self._det_limit_side.setValue(2048)
         self._det_limit_side.setSingleStep(32)
-        gd.addLayout(_spin_row("检测图像长边限制：", self._det_limit_side, "px"))
-        gd.addWidget(_hint("输入图像会缩放到此尺寸再检测。值越大检测越精细但越慢，默认 2048"))
+        gd.addLayout(_spin_row(tr("det_limit_side"), self._det_limit_side, "px"))
+        gd.addWidget(_hint(tr("det_limit_side_hint")))
 
         self._det_limit_type = QComboBox()
-        self._det_limit_type.addItem("max — 限制长边", "max")
-        self._det_limit_type.addItem("min — 限制短边", "min")
+        self._det_limit_type.addItem(tr("det_limit_max"), "max")
+        self._det_limit_type.addItem(tr("det_limit_min"), "min")
         self._det_limit_type.setFixedWidth(200)
         lr = QHBoxLayout()
-        lr.addWidget(QLabel("限制类型："))
+        lr.addWidget(QLabel(tr("det_limit_type")))
         lr.addWidget(self._det_limit_type)
         lr.addStretch()
         gd.addLayout(lr)
-        gd.addWidget(_hint("max：按长边缩放（默认）；min：按短边缩放，适合超长条形图像"))
+        gd.addWidget(_hint(tr("det_limit_type_hint")))
 
         self._det_thresh = QDoubleSpinBox()
         self._det_thresh.setRange(0.01, 1.0)
         self._det_thresh.setValue(0.3)
         self._det_thresh.setSingleStep(0.05)
         self._det_thresh.setDecimals(2)
-        gd.addLayout(_spin_row("文本区域阈值（det_thresh）：", self._det_thresh))
-        gd.addWidget(_hint("DB 二值化阈值，越低越容易检测到浅色/模糊文字，但也可能误检噪点。默认 0.3"))
+        gd.addLayout(_spin_row(tr("det_thresh"), self._det_thresh))
+        gd.addWidget(_hint(tr("det_thresh_hint")))
 
         self._det_box_thresh = QDoubleSpinBox()
         self._det_box_thresh.setRange(0.01, 1.0)
         self._det_box_thresh.setValue(0.45)
         self._det_box_thresh.setSingleStep(0.05)
         self._det_box_thresh.setDecimals(2)
-        gd.addLayout(_spin_row("文本框置信阈值（box_thresh）：", self._det_box_thresh))
-        gd.addWidget(_hint("检测框的最低平均置信度，低于此值的框被丢弃。调低可保留更多弱文本区域。默认 0.45"))
+        gd.addLayout(_spin_row(tr("det_box_thresh"), self._det_box_thresh))
+        gd.addWidget(_hint(tr("det_box_thresh_hint")))
 
         self._det_unclip = QDoubleSpinBox()
         self._det_unclip.setRange(0.5, 5.0)
         self._det_unclip.setValue(2.0)
         self._det_unclip.setSingleStep(0.1)
         self._det_unclip.setDecimals(1)
-        gd.addLayout(_spin_row("文本框扩展比例（unclip_ratio）：", self._det_unclip))
-        gd.addWidget(_hint("检测框向外扩展的比例，值越大框越宽松，可包含更多边缘文字。默认 2.0"))
+        gd.addLayout(_spin_row(tr("det_unclip"), self._det_unclip))
+        gd.addWidget(_hint(tr("det_unclip_hint")))
 
-        adv.addWidget(grp_det)
+        adv.addWidget(self._det_group)
 
         # ─── 4. 文本识别参数 ───
-        grp_rec = QGroupBox("文本识别参数（OCR）")
-        gr = QVBoxLayout(grp_rec)
+        self._rec_group = QGroupBox(tr("rec_group"))
+        gr = QVBoxLayout(self._rec_group)
 
         self._rec_score_thresh = QDoubleSpinBox()
         self._rec_score_thresh.setRange(0.0, 1.0)
         self._rec_score_thresh.setValue(0.0)
         self._rec_score_thresh.setSingleStep(0.05)
         self._rec_score_thresh.setDecimals(2)
-        gr.addLayout(_spin_row("识别置信度过滤：", self._rec_score_thresh))
-        gr.addWidget(_hint("低于此置信度的识别结果被丢弃。设为 0 表示不过滤（保留所有结果）。调高可去掉乱码"))
+        gr.addLayout(_spin_row(tr("rec_score_thresh"), self._rec_score_thresh))
+        gr.addWidget(_hint(tr("rec_score_thresh_hint")))
 
         self._rec_batch = QSpinBox()
         self._rec_batch.setRange(1, 64)
         self._rec_batch.setValue(1)
-        gr.addLayout(_spin_row("识别 batch size：", self._rec_batch))
-        gr.addWidget(_hint("一次送入识别模型的文本行数量。增大可加速但消耗更多内存。CPU 推荐 1"))
+        gr.addLayout(_spin_row(tr("rec_batch"), self._rec_batch))
+        gr.addWidget(_hint(tr("rec_batch_hint")))
 
-        self._return_word_box = QCheckBox("返回单词级边框（return_word_box）")
+        self._return_word_box = QCheckBox(tr("return_word_box"))
         gr.addWidget(self._return_word_box)
-        gr.addWidget(_hint("除了行级边框外，额外返回每个单词的精确位置。当前仅 PaddleOCR 提供，ONNX 模式会自动禁用"))
+        gr.addWidget(_hint(tr("return_word_box_hint")))
 
-        adv.addWidget(grp_rec)
+        adv.addWidget(self._rec_group)
 
         # ─── 5. PPStructureV3 功能开关 ───
-        self._struct_group = QGroupBox("结构化解析功能（PPStructureV3）")
+        self._struct_group = QGroupBox(tr("struct_group"))
         gs = QVBoxLayout(self._struct_group)
-        gs.addWidget(_hint("以下开关仅在使用 PPStructureV3 pipeline 时生效"))
+        gs.addWidget(_hint(tr("struct_hint")))
 
-        self._use_table = QCheckBox("表格识别（use_table_recognition）")
+        self._use_table = QCheckBox(tr("use_table"))
         self._use_table.setChecked(True)
         gs.addWidget(self._use_table)
-        gs.addWidget(_hint("识别文档中的表格并还原为结构化数据（行/列/单元格），导出 Excel/Word 表格的核心功能"))
+        gs.addWidget(_hint(tr("use_table_hint")))
 
-        self._use_formula = QCheckBox("公式识别（use_formula_recognition）")
+        self._use_formula = QCheckBox(tr("use_formula"))
         gs.addWidget(self._use_formula)
-        gs.addWidget(_hint("识别数学公式并转为 LaTeX 格式。关闭可加速处理非学术文档"))
+        gs.addWidget(_hint(tr("use_formula_hint")))
 
-        self._use_chart = QCheckBox("图表识别（use_chart_recognition）")
+        self._use_chart = QCheckBox(tr("use_chart"))
         gs.addWidget(self._use_chart)
-        gs.addWidget(_hint("识别柱状图/饼图/折线图等，转为结构化表格数据。需要 PP-Chart2Table 模型（1.3GB）"))
+        gs.addWidget(_hint(tr("use_chart_hint")))
 
-        self._use_seal = QCheckBox("印章识别（use_seal_recognition）")
+        self._use_seal = QCheckBox(tr("use_seal"))
         gs.addWidget(self._use_seal)
-        gs.addWidget(_hint("识别圆形/椭圆形印章中的弯曲文字。适合合同、证书等盖章文档"))
+        gs.addWidget(_hint(tr("use_seal_hint")))
 
-        self._use_region_det = QCheckBox("区域检测（use_region_detection）")
+        self._use_region_det = QCheckBox(tr("use_region_det"))
         self._use_region_det.setChecked(True)
         gs.addWidget(self._use_region_det)
-        gs.addWidget(_hint("在版面分析基础上进一步检测图文混排区域，提升复杂版面的解析精度"))
+        gs.addWidget(_hint(tr("use_region_det_hint")))
 
         adv.addWidget(self._struct_group)
 
         # ─── 6. 版面分析参数 ───
-        self._layout_group = QGroupBox("版面分析参数（PPStructureV3）")
+        self._layout_group = QGroupBox(tr("layout_group"))
         gla = QVBoxLayout(self._layout_group)
 
         self._layout_thresh = QDoubleSpinBox()
@@ -358,41 +358,42 @@ class QuickConvertPanel(QWidget):
         self._layout_thresh.setValue(0.5)
         self._layout_thresh.setSingleStep(0.05)
         self._layout_thresh.setDecimals(2)
-        gla.addLayout(_spin_row("版面检测阈值：", self._layout_thresh))
-        gla.addWidget(_hint("版面区域的最低置信度。降低可检测出更多区域块，但可能引入误检。默认 0.5"))
+        gla.addLayout(_spin_row(tr("layout_thresh"), self._layout_thresh))
+        gla.addWidget(_hint(tr("layout_thresh_hint")))
 
         self._layout_nms = QDoubleSpinBox()
         self._layout_nms.setRange(0.01, 1.0)
         self._layout_nms.setValue(0.5)
         self._layout_nms.setSingleStep(0.05)
         self._layout_nms.setDecimals(2)
-        gla.addLayout(_spin_row("版面 NMS 阈值：", self._layout_nms))
-        gla.addWidget(_hint("非极大值抑制阈值，用于合并重叠的版面区域框。值越高保留的重叠框越多"))
+        gla.addLayout(_spin_row(tr("layout_nms"), self._layout_nms))
+        gla.addWidget(_hint(tr("layout_nms_hint")))
 
         self._layout_unclip = QDoubleSpinBox()
         self._layout_unclip.setRange(0.0, 3.0)
         self._layout_unclip.setValue(0.0)
         self._layout_unclip.setSingleStep(0.1)
         self._layout_unclip.setDecimals(1)
-        gla.addLayout(_spin_row("版面框扩展比例：", self._layout_unclip))
-        gla.addWidget(_hint("版面区域框向外扩展的比例，0 表示使用默认值"))
+        gla.addLayout(_spin_row(tr("layout_unclip"), self._layout_unclip))
+        gla.addWidget(_hint(tr("layout_unclip_hint")))
 
         self._layout_merge = QComboBox()
-        self._layout_merge.addItem("默认", "")
-        self._layout_merge.addItem("large — 合并大区域", "large")
-        self._layout_merge.addItem("small — 合并小区域", "small")
+        self._layout_merge.addItem(tr("layout_merge_default"), "")
+        self._layout_merge.addItem(tr("layout_merge_large"), "large")
+        self._layout_merge.addItem(tr("layout_merge_small"), "small")
         self._layout_merge.setFixedWidth(200)
         mr = QHBoxLayout()
-        mr.addWidget(QLabel("区域合并模式："))
+        self._layout_merge_label = QLabel(tr("layout_merge_mode"))
+        mr.addWidget(self._layout_merge_label)
         mr.addWidget(self._layout_merge)
         mr.addStretch()
         gla.addLayout(mr)
-        gla.addWidget(_hint("控制如何合并相邻的版面区域。large 适合报纸/杂志等大分栏版面"))
+        gla.addWidget(_hint(tr("layout_merge_hint")))
 
         adv.addWidget(self._layout_group)
 
         # ─── 7. 印章检测参数 ───
-        self._seal_group = QGroupBox("印章检测参数（PPStructureV3）")
+        self._seal_group = QGroupBox(tr("seal_group"))
         gse = QVBoxLayout(self._seal_group)
 
         self._seal_det_thresh = QDoubleSpinBox()
@@ -400,43 +401,43 @@ class QuickConvertPanel(QWidget):
         self._seal_det_thresh.setValue(0.3)
         self._seal_det_thresh.setSingleStep(0.05)
         self._seal_det_thresh.setDecimals(2)
-        gse.addLayout(_spin_row("印章检测阈值：", self._seal_det_thresh))
-        gse.addWidget(_hint("印章文字检测的二值化阈值。印章颜色较浅时可适当降低"))
+        gse.addLayout(_spin_row(tr("seal_det_thresh"), self._seal_det_thresh))
+        gse.addWidget(_hint(tr("seal_det_thresh_hint")))
 
         self._seal_box_thresh = QDoubleSpinBox()
         self._seal_box_thresh.setRange(0.01, 1.0)
         self._seal_box_thresh.setValue(0.6)
         self._seal_box_thresh.setSingleStep(0.05)
         self._seal_box_thresh.setDecimals(2)
-        gse.addLayout(_spin_row("印章框置信阈值：", self._seal_box_thresh))
-        gse.addWidget(_hint("印章文字框的最低置信度"))
+        gse.addLayout(_spin_row(tr("seal_box_thresh"), self._seal_box_thresh))
+        gse.addWidget(_hint(tr("seal_box_thresh_hint")))
 
         self._seal_unclip = QDoubleSpinBox()
         self._seal_unclip.setRange(0.5, 5.0)
         self._seal_unclip.setValue(1.5)
         self._seal_unclip.setSingleStep(0.1)
         self._seal_unclip.setDecimals(1)
-        gse.addLayout(_spin_row("印章框扩展比例：", self._seal_unclip))
-        gse.addWidget(_hint("印章文字框向外扩展的比例"))
+        gse.addLayout(_spin_row(tr("seal_unclip"), self._seal_unclip))
+        gse.addWidget(_hint(tr("seal_unclip_hint")))
 
         self._seal_rec_thresh = QDoubleSpinBox()
         self._seal_rec_thresh.setRange(0.0, 1.0)
         self._seal_rec_thresh.setValue(0.0)
         self._seal_rec_thresh.setSingleStep(0.05)
         self._seal_rec_thresh.setDecimals(2)
-        gse.addLayout(_spin_row("印章识别置信过滤：", self._seal_rec_thresh))
-        gse.addWidget(_hint("低于此值的印章文字识别结果被丢弃"))
+        gse.addLayout(_spin_row(tr("seal_rec_thresh"), self._seal_rec_thresh))
+        gse.addWidget(_hint(tr("seal_rec_thresh_hint")))
 
         adv.addWidget(self._seal_group)
 
         # ─── 8. PDF 输入 ───
-        self._pdf_group = QGroupBox("PDF 输入设置")
+        self._pdf_group = QGroupBox(tr("pdf_input_group"))
         gpdf = QVBoxLayout(self._pdf_group)
         self._dpi_spin = QSpinBox()
         self._dpi_spin.setRange(72, 600)
         self._dpi_spin.setValue(200)
-        gpdf.addLayout(_spin_row("渲染 DPI：", self._dpi_spin))
-        gpdf.addWidget(_hint("PDF 页面渲染为图片的分辨率。默认 200 适合大多数场景；扫描件提质可调到 300，最高 600"))
+        gpdf.addLayout(_spin_row(tr("render_dpi"), self._dpi_spin))
+        gpdf.addWidget(_hint(tr("render_dpi_hint")))
         adv.addWidget(self._pdf_group)
 
         layout.addWidget(self._adv_widget)
@@ -454,6 +455,48 @@ class QuickConvertPanel(QWidget):
 
         # 延迟到事件循环启动后再检查后端（避免启动时阻塞 UI）
         QTimer.singleShot(0, self._deferred_init)
+
+        on_language_changed(self._retranslate)
+
+    def _retranslate(self) -> None:
+        self._title_label.setText(tr("convert_title"))
+        self._fmt_label.setText(tr("select_output_format"))
+        self._lang_label.setText(tr("ocr_language"))
+        self._mode_label.setText(tr("mode_label"))
+        self._start_btn.setText(tr("start_convert"))
+        self._parallel_label.setText(tr("parallel_workers"))
+        self._force_ocr_check.setText(tr("force_ocr"))
+        self._page_range_label.setText(tr("pdf_page_range"))
+        self._page_hint.setText(tr("pdf_page_hint"))
+        self._adv_toggle.setText(
+            tr("advanced_expanded") if self._adv_widget.isVisible()
+            else tr("advanced_collapsed")
+        )
+        # Group box titles
+        self._pipeline_group.setTitle(tr("pipeline_group"))
+        self._preproc_group.setTitle(tr("preprocess_group"))
+        self._det_group.setTitle(tr("det_group"))
+        self._rec_group.setTitle(tr("rec_group"))
+        self._struct_group.setTitle(tr("struct_group"))
+        self._layout_group.setTitle(tr("layout_group"))
+        self._seal_group.setTitle(tr("seal_group"))
+        self._pdf_group.setTitle(tr("pdf_input_group"))
+        # Checkboxes
+        self._preserve_layout_check.setText(tr("preserve_layout"))
+        self._orientation_check.setText(tr("orientation_check"))
+        self._unwarp_check.setText(tr("unwarp_check"))
+        self._textline_ori_check.setText(tr("textline_ori_check"))
+        self._return_word_box.setText(tr("return_word_box"))
+        self._use_table.setText(tr("use_table"))
+        self._use_formula.setText(tr("use_formula"))
+        self._use_chart.setText(tr("use_chart"))
+        self._use_seal.setText(tr("use_seal"))
+        self._use_region_det.setText(tr("use_region_det"))
+        # Speed combo
+        self._speed_combo.setItemText(0, tr("mode_balanced"))
+        self._speed_combo.setItemText(1, tr("mode_speed"))
+        # Refresh backend hint
+        self._refresh_runtime_options()
 
     # ── 延迟初始化 ──
 
@@ -483,7 +526,7 @@ class QuickConvertPanel(QWidget):
         if not self._server_onnx_ok:
             self._speed_combo.model().item(0).setEnabled(False)
             self._speed_combo.setCurrentIndex(1)
-            self._speed_combo.setToolTip("当前环境未找到 Server ONNX 模型，仅可使用 Mobile 模式")
+            self._speed_combo.setToolTip(tr("server_onnx_unavailable"))
 
         # PPStructure 不可用时禁用并显示提示
         if not self._paddle_ok:
@@ -578,7 +621,7 @@ class QuickConvertPanel(QWidget):
         self._set_enabled(
             self._preserve_layout_check,
             preserve_layout_enabled,
-            "仅 TXT/RTF 且结构化后端可用时生效",
+            tr("preserve_layout_tooltip"),
         )
 
         structure_enabled = structure_active and self._paddle_ok
@@ -589,12 +632,12 @@ class QuickConvertPanel(QWidget):
         self._set_enabled(
             self._unwarp_check,
             not onnx_ocr,
-            "当前 ONNX OCR 不支持文档弯曲矫正",
+            tr("unwarp_tooltip"),
         )
         self._set_enabled(
             self._return_word_box,
             not onnx_ocr,
-            "当前 ONNX OCR 不返回单词级边框",
+            tr("return_word_box_tooltip"),
         )
 
         self._parallel_spin.setEnabled(is_pdf)
@@ -604,17 +647,13 @@ class QuickConvertPanel(QWidget):
         self._pdf_group.setEnabled(is_pdf)
 
         if structure_active:
-            self._backend_hint.setText("当前实际后端：PPStructureV3（需要 PaddlePaddle）")
+            self._backend_hint.setText(tr("backend_structure"))
         elif onnx_ocr:
-            self._backend_hint.setText(
-                "当前实际后端：ONNX OCR。"
-                "方向检测、文本行方向、检测阈值、识别阈值、batch size 会生效；"
-                "弯曲矫正和单词级边框不可用。"
-            )
+            self._backend_hint.setText(tr("backend_onnx"))
         elif ocr_backend == "paddle":
-            self._backend_hint.setText("当前实际后端：PaddleOCR。所选 OCR 高级参数会传给 Paddle。")
+            self._backend_hint.setText(tr("backend_paddle"))
         else:
-            self._backend_hint.setText("当前环境缺少所选 OCR 后端，请调整语言或速度模式。")
+            self._backend_hint.setText(tr("backend_missing"))
 
     def _on_file_selected(self, path: Path) -> None:
         self._selected_file = path
@@ -644,8 +683,7 @@ class QuickConvertPanel(QWidget):
         visible = not self._adv_widget.isVisible()
         self._adv_widget.setVisible(visible)
         self._adv_toggle.setText(
-            "▼ 高级选项（按当前引擎生效）" if visible
-            else "▶ 高级选项（按当前引擎生效）"
+            tr("advanced_expanded") if visible else tr("advanced_collapsed")
         )
 
     def _on_start(self) -> None:

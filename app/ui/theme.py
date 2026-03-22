@@ -81,9 +81,9 @@ SHADOW_PROMINENT = (24, 0, 8, 0.14)
 # ── 导航图标 ──
 
 NAV_ICONS = {
-    "转换": "\u21C4",   # ⇄
-    "预览": "\u25A3",   # ▣
-    "设置": "\u2699",   # ⚙
+    "nav_convert": "\u21C4",   # ⇄
+    "nav_preview": "\u25A3",   # ▣
+    "nav_settings": "\u2699",  # ⚙
 }
 
 # ── 格式图标 ──

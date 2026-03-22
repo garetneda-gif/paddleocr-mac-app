@@ -27,11 +27,13 @@ def main() -> None:
     atexit.register(shutdown_pool)
 
     from PySide6.QtWidgets import QApplication
+    from app.i18n import load_saved_language, tr
     from app.ui.main_window import MainWindow
 
     app = QApplication(sys.argv)
+    load_saved_language()
     app.setApplicationName("PaddleOCR")
-    app.setApplicationDisplayName("PaddleOCR — 智能文档识别")
+    app.setApplicationDisplayName(tr("app_title"))
 
     window = MainWindow()
     window.show()

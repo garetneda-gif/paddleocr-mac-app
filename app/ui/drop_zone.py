@@ -9,6 +9,7 @@ from PySide6.QtCore import Signal, Qt, QTimer, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QKeySequence, QShortcut, QColor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget, QFileDialog
 
+from app.i18n import tr, on_language_changed
 from app.ui.theme import (
     ACCENT, BG_PRIMARY, BORDER, BORDER_LIGHT, SUCCESS, SUCCESS_BG,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY,
@@ -18,7 +19,6 @@ from app.ui.theme import (
 SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".pdf"}
 
 _EXT_FILTER = " ".join(f"*{e}" for e in sorted(SUPPORTED_EXTENSIONS))
-_FILE_DIALOG_FILTER = f"支持的文件 ({_EXT_FILTER});;所有文件 (*)"
 
 
 def _collect_files(path: Path) -> list[Path]:
@@ -86,7 +86,7 @@ class DropZone(QWidget):
         self._icon.setText("\u2191")  # 上箭头
         layout.addWidget(self._icon)
 
-        self._label = QLabel("拖拽图片、PDF 或文件夹到此处")
+        self._label = QLabel(tr("drop_idle"))
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._label.setStyleSheet(
             f"font-size: 14px; color: {TEXT_SECONDARY}; font-weight: 500; "
@@ -94,7 +94,7 @@ class DropZone(QWidget):
         )
         layout.addWidget(self._label)
 
-        self._sub = QLabel("点击选择  |  拖拽文件  |  Cmd+V 粘贴截图")
+        self._sub = QLabel(tr("drop_sub"))
         self._sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._sub.setStyleSheet(
             f"font-size: 11px; color: {TEXT_TERTIARY}; background: transparent; border: none;"
@@ -110,14 +110,25 @@ class DropZone(QWidget):
         self._pulse_timer.setInterval(600)
         self._pulse_on = False
 
+        # 当前是否有文件（用于 retranslate 判断状态）
+        self._has_file = False
+
+        on_language_changed(self._retranslate)
+
+    def _retranslate(self) -> None:
+        if not self._has_file:
+            self._label.setText(tr("drop_idle"))
+            self._sub.setText(tr("drop_sub"))
+
     def mousePressEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton:
             return
+        file_filter = tr("file_filter").format(ext=_EXT_FILTER)
         paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "选择文件（可多选）",
+            tr("drop_select_files"),
             "",
-            _FILE_DIALOG_FILTER,
+            file_filter,
         )
         if paths:
             file_list = [Path(p) for p in paths]
@@ -133,7 +144,7 @@ class DropZone(QWidget):
             self._icon.setStyleSheet(
                 f"font-size: 36px; color: {ACCENT}; background: transparent; border: none;"
             )
-            self._label.setText("松开以添加文件")
+            self._label.setText(tr("drop_hover"))
             self._label.setStyleSheet(
                 f"font-size: 14px; color: {ACCENT}; font-weight: 600; "
                 "background: transparent; border: none;"
@@ -166,18 +177,20 @@ class DropZone(QWidget):
 
     def _reset_idle(self) -> None:
         """恢复到空闲态。"""
+        self._has_file = False
         self.setStyleSheet(_IDLE_STYLE)
         self._icon.setText("\u2191")
         self._icon.setStyleSheet(
             f"font-size: 36px; color: {BORDER_LIGHT}; background: transparent; border: none;"
         )
-        self._label.setText("拖拽图片、PDF 或文件夹到此处")
+        self._label.setText(tr("drop_idle"))
         self._label.setStyleSheet(
             f"font-size: 14px; color: {TEXT_SECONDARY}; font-weight: 500; "
             "background: transparent; border: none;"
         )
 
     def set_file_info(self, path: Path) -> None:
+        self._has_file = True
         self.setStyleSheet(_HAS_FILE_STYLE)
         self._icon.setText("\u2713")
         self._icon.setStyleSheet(
@@ -196,7 +209,7 @@ class DropZone(QWidget):
             f"font-size: 13px; color: {TEXT_PRIMARY}; font-weight: 600; "
             "background: transparent; border: none;"
         )
-        self._sub.setText(f"{size_str}  --  点击重新选择")
+        self._sub.setText(tr("drop_reselect").format(size=size_str))
         self._sub.setStyleSheet(
             f"font-size: 11px; color: {TEXT_SECONDARY}; background: transparent; border: none;"
         )
@@ -242,6 +255,7 @@ class DropZone(QWidget):
         if len(paths) == 1:
             self.set_file_info(paths[0])
             return
+        self._has_file = True
         self.setStyleSheet(_HAS_FILE_STYLE)
         self._icon.setText("\u2713")
         self._icon.setStyleSheet(
@@ -249,12 +263,12 @@ class DropZone(QWidget):
         )
         total_size = sum(p.stat().st_size for p in paths)
         size_mb = total_size / (1024 * 1024)
-        self._label.setText(f"已选择 {len(paths)} 个文件（{size_mb:.1f} MB）")
+        self._label.setText(tr("drop_multi_files").format(count=len(paths), size=f"{size_mb:.1f}"))
         self._label.setStyleSheet(
             f"font-size: 13px; color: {TEXT_PRIMARY}; font-weight: 600; "
             "background: transparent; border: none;"
         )
-        self._sub.setText(f"{paths[0].name} 等  --  点击重新选择")
+        self._sub.setText(tr("drop_multi_reselect").format(name=paths[0].name))
         self._sub.setStyleSheet(
             f"font-size: 11px; color: {TEXT_SECONDARY}; background: transparent; border: none;"
         )

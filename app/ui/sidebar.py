@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QPainter, QColor
 
+from app.i18n import tr, on_language_changed
 from app.ui.theme import (
     ACCENT, ACCENT_BG, BORDER, BORDER_LIGHT,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY,
@@ -18,10 +19,10 @@ from app.ui.theme import (
 )
 
 
-_NAV_ITEMS = [
-    "转换",
-    "预览",
-    "设置",
+_NAV_KEYS = [
+    "nav_convert",
+    "nav_preview",
+    "nav_settings",
 ]
 
 _NAV_STYLE_NORMAL = (
@@ -81,6 +82,9 @@ class _NavButton(QWidget):
 
     def isChecked(self) -> bool:
         return self._checked
+
+    def set_label(self, text: str) -> None:
+        self._text_label.setText(text)
 
     def enterEvent(self, event) -> None:
         if not self._checked:
@@ -155,9 +159,10 @@ class Sidebar(QWidget):
         layout.addSpacing(20)
 
         self._buttons: list[_NavButton] = []
-        for i, title in enumerate(_NAV_ITEMS):
-            icon = NAV_ICONS.get(title, "")
-            btn = _NavButton(icon, title)
+        self._nav_keys = _NAV_KEYS
+        for i, key in enumerate(_NAV_KEYS):
+            icon = NAV_ICONS.get(key, "")
+            btn = _NavButton(icon, tr(key))
             btn.clicked.connect(lambda idx=i: self._on_click(idx))
             layout.addWidget(btn)
             self._buttons.append(btn)
@@ -185,6 +190,12 @@ class Sidebar(QWidget):
         self._current_index = 0
         self._buttons[0].setChecked(True)
 
+        on_language_changed(self._retranslate)
+
+    def _retranslate(self) -> None:
+        for i, key in enumerate(self._nav_keys):
+            self._buttons[i].set_label(tr(key))
+
     def showEvent(self, event) -> None:
         super().showEvent(event)
         # 首次显示时定位指示条
@@ -208,4 +219,4 @@ class Sidebar(QWidget):
     def set_processing(self, active: bool) -> None:
         """转换中时在侧边栏显示状态。"""
         self._status_label.setVisible(active)
-        self._status_label.setText("处理中..." if active else "")
+        self._status_label.setText(tr("sidebar_processing") if active else "")
