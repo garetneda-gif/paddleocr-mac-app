@@ -199,6 +199,24 @@ STRINGS: dict[str, str] = {
     "settings_deleted_title": "Deleted",
     "settings_deleted_msg": "PaddleX model files deleted. They will be re-downloaded on next use.",
 
+    # ── Model Management ──
+    "settings_onnx_models": "ONNX Model Management",
+    "model_mobile": "Mobile models (speed-first)",
+    "model_server": "Server models (accuracy-first)",
+    "model_available": "✓ Available",
+    "model_missing": "✗ Not found",
+    "model_download": "Download Server Models",
+    "model_downloading": "Downloading... {pct}%",
+    "model_download_done": "Download complete",
+    "model_download_error": "Download failed: {error}",
+    "model_download_confirm_title": "Download Server Models",
+    "model_download_confirm": (
+        "Download PP-OCRv5 Server models from GitHub (~165 MB)\n"
+        "Save to: {path}\n\n"
+        "After download you can use \"Balanced\" mode for higher accuracy.\n\n"
+        "Continue?"
+    ),
+
     # ── Progress Dialog ──
     "progress_title": "Processing",
     "progress_init": "Initializing model...",

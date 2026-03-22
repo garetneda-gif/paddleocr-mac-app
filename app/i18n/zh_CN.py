@@ -199,6 +199,24 @@ STRINGS: dict[str, str] = {
     "settings_deleted_title": "已删除",
     "settings_deleted_msg": "PaddleX 模型文件已删除。下次使用时将重新下载。",
 
+    # ── 模型管理 ──
+    "settings_onnx_models": "ONNX 模型管理",
+    "model_mobile": "Mobile 模型（速度优先）",
+    "model_server": "Server 模型（精度优先）",
+    "model_available": "✓ 可用",
+    "model_missing": "✗ 未找到",
+    "model_download": "下载 Server 模型",
+    "model_downloading": "正在下载... {pct}%",
+    "model_download_done": "下载完成",
+    "model_download_error": "下载失败：{error}",
+    "model_download_confirm_title": "下载 Server 模型",
+    "model_download_confirm": (
+        "将从 GitHub 下载 PP-OCRv5 Server 模型（约 165 MB）\n"
+        "保存到：{path}\n\n"
+        "下载完成后即可使用「均衡」模式获得更高识别精度。\n\n"
+        "继续下载？"
+    ),
+
     # ── 进度对话框 ──
     "progress_title": "正在处理",
     "progress_init": "正在初始化模型...",

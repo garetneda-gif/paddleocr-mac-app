@@ -1,8 +1,10 @@
-"""设置面板 — 默认配置、模型缓存管理、关于。"""
+"""设置面板 — 默认配置、模型管理、缓存、关于。"""
 
 from __future__ import annotations
 
 import shutil
+import urllib.request
+import zipfile
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal as _Signal, QSettings
@@ -14,17 +16,34 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from app.i18n import tr, set_language, current_language, on_language_changed, UI_LANGUAGE_NAMES
-from app.ui.theme import ACCENT, DANGER, TEXT_PRIMARY, TEXT_SECONDARY, __version__
+from app.ui.theme import ACCENT, DANGER, SUCCESS, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY, __version__
 from app.utils.language_map import LANGUAGES
 from app.utils.paths import default_output_dir
 
 _PADDLEX_CACHE = Path.home() / ".paddlex" / "official_models"
+_ONNX_MODELS_DIR = Path.home() / ".paddlex" / "onnx_models"
+
+# GitHub release 下载地址（上传模型 zip 后更新此 URL）
+_MODEL_DOWNLOAD_URL = (
+    "https://github.com/garetneda-gif/paddleocr-mac-app/releases/download/"
+    "v2.3.0/PP-OCRv5_server_models.zip"
+)
+
+_SERVER_MODEL_FILES = [
+    "PP-OCRv5_server_det.onnx",
+    "PP-OCRv5_server_rec.onnx",
+]
+_MOBILE_MODEL_FILES = [
+    "PP-OCRv5_mobile_det.onnx",
+    "PP-OCRv5_mobile_rec.onnx",
+]
 
 
 def _find_model_dirs() -> list[tuple[str, Path]]:
@@ -40,6 +59,18 @@ def _find_model_dirs() -> list[tuple[str, Path]]:
     if _PADDLEX_CACHE.exists():
         dirs.append(("settings_cache_paddlex", _PADDLEX_CACHE))
     return dirs
+
+
+def _check_models_available(names: list[str]) -> bool:
+    """检查指定模型文件是否可用（在任意搜索路径中找到）。"""
+    try:
+        from app.core.onnx_engine import _find_onnx_dir
+        onnx_dir = _find_onnx_dir()
+        if onnx_dir:
+            return all((onnx_dir / n).exists() for n in names)
+    except Exception:
+        pass
+    return False
 
 
 class _CacheInfoWorker(QThread):
@@ -72,11 +103,57 @@ class _CacheInfoWorker(QThread):
         self.finished.emit("\n".join(lines))
 
 
+class _ModelDownloadWorker(QThread):
+    """后台下载模型文件。"""
+
+    progress = _Signal(int)      # percentage 0-100
+    finished = _Signal()
+    error = _Signal(str)
+
+    def __init__(self, url: str, dest_dir: Path, parent=None):
+        super().__init__(parent)
+        self._url = url
+        self._dest_dir = dest_dir
+
+    def run(self):
+        try:
+            self._dest_dir.mkdir(parents=True, exist_ok=True)
+            zip_path = self._dest_dir / "_download.zip"
+
+            # 下载
+            req = urllib.request.Request(self._url, headers={"User-Agent": "PaddleOCR-Desktop"})
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                total = int(resp.headers.get("Content-Length", 0))
+                downloaded = 0
+                with open(zip_path, "wb") as f:
+                    while True:
+                        chunk = resp.read(1024 * 256)  # 256KB chunks
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total > 0:
+                            self.progress.emit(int(downloaded / total * 100))
+
+            # 解压
+            self.progress.emit(99)
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                zf.extractall(self._dest_dir)
+
+            zip_path.unlink(missing_ok=True)
+            self.progress.emit(100)
+            self.finished.emit()
+
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class SettingsPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._settings = QSettings("PaddleOCR", "Desktop")
         self._cache_worker: _CacheInfoWorker | None = None
+        self._download_worker: _ModelDownloadWorker | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
@@ -93,13 +170,10 @@ class SettingsPanel(QWidget):
         for code, name in UI_LANGUAGE_NAMES.items():
             self._ui_lang_combo.addItem(name, code)
         self._ui_lang_combo.setFixedWidth(280)
-
-        # 设置当前语言
         idx = self._ui_lang_combo.findData(current_language())
         if idx >= 0:
             self._ui_lang_combo.setCurrentIndex(idx)
         self._ui_lang_combo.currentIndexChanged.connect(self._on_ui_language_changed)
-
         ui_lang_layout.addWidget(self._ui_lang_combo)
         ui_lang_layout.addStretch()
         layout.addWidget(self._ui_lang_group)
@@ -111,14 +185,11 @@ class SettingsPanel(QWidget):
         for code, name in LANGUAGES.items():
             self._lang_combo.addItem(f"{name} ({code})", code)
         self._lang_combo.setFixedWidth(280)
-
-        # 从 QSettings 恢复
         saved_lang = self._settings.value("ocr/language", "ch")
         idx = self._lang_combo.findData(saved_lang)
         if idx >= 0:
             self._lang_combo.setCurrentIndex(idx)
         self._lang_combo.currentIndexChanged.connect(self._save_language)
-
         lang_layout.addWidget(self._lang_combo)
         lang_layout.addStretch()
         layout.addWidget(self._lang_group)
@@ -126,12 +197,10 @@ class SettingsPanel(QWidget):
         # ── 默认输出目录 ──
         self._dir_group = QGroupBox(tr("settings_output_dir"))
         dir_layout = QHBoxLayout(self._dir_group)
-
         saved_dir = self._settings.value("output/directory", "")
         self._dir_edit = QLineEdit(saved_dir or str(default_output_dir()))
         self._dir_edit.editingFinished.connect(self._save_directory)
         dir_layout.addWidget(self._dir_edit)
-
         self._dir_select_btn = QPushButton(tr("settings_select"))
         self._dir_select_btn.setFixedWidth(60)
         self._dir_select_btn.clicked.connect(self._browse_dir)
@@ -142,10 +211,51 @@ class SettingsPanel(QWidget):
         dir_layout.addWidget(self._dir_open_btn)
         layout.addWidget(self._dir_group)
 
+        # ── ONNX 模型管理 ──
+        self._onnx_group = QGroupBox(tr("settings_onnx_models"))
+        onnx_layout = QVBoxLayout(self._onnx_group)
+
+        # Mobile 状态
+        mobile_row = QHBoxLayout()
+        mobile_row.addWidget(QLabel(tr("model_mobile")))
+        self._mobile_status = QLabel()
+        mobile_row.addWidget(self._mobile_status)
+        mobile_row.addStretch()
+        onnx_layout.addLayout(mobile_row)
+
+        # Server 状态
+        server_row = QHBoxLayout()
+        server_row.addWidget(QLabel(tr("model_server")))
+        self._server_status = QLabel()
+        server_row.addWidget(self._server_status)
+        server_row.addStretch()
+        onnx_layout.addLayout(server_row)
+
+        # 下载按钮 + 进度条
+        dl_row = QHBoxLayout()
+        self._download_btn = QPushButton(tr("model_download"))
+        self._download_btn.setMinimumWidth(160)
+        self._download_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {ACCENT}; color: white; border: none; "
+            f"border-radius: 6px; padding: 6px 16px; font-weight: 500; }}"
+            f"QPushButton:hover {{ background-color: #1557B0; }}"
+            f"QPushButton:disabled {{ background-color: #CCCCCC; }}"
+        )
+        self._download_btn.clicked.connect(self._on_download)
+        dl_row.addWidget(self._download_btn)
+
+        self._download_progress = QProgressBar()
+        self._download_progress.setFixedHeight(20)
+        self._download_progress.setVisible(False)
+        dl_row.addWidget(self._download_progress, 1)
+        dl_row.addStretch()
+        onnx_layout.addLayout(dl_row)
+
+        layout.addWidget(self._onnx_group)
+
         # ── 模型缓存 ──
         self._cache_group = QGroupBox(tr("settings_model_cache"))
         cache_layout = QVBoxLayout(self._cache_group)
-
         self._cache_info = QLabel(tr("settings_calculating"))
         cache_layout.addWidget(self._cache_info)
 
@@ -154,7 +264,6 @@ class SettingsPanel(QWidget):
         self._refresh_btn.setFixedWidth(80)
         self._refresh_btn.clicked.connect(self._update_cache_info)
         cache_btn_row.addWidget(self._refresh_btn)
-
         self._clear_btn = QPushButton(tr("settings_delete_paddle"))
         self._clear_btn.setMinimumWidth(140)
         self._clear_btn.setStyleSheet(f"color: {DANGER};")
@@ -162,7 +271,6 @@ class SettingsPanel(QWidget):
         cache_btn_row.addWidget(self._clear_btn)
         cache_btn_row.addStretch()
         cache_layout.addLayout(cache_btn_row)
-
         layout.addWidget(self._cache_group)
 
         # ── 关于 ──
@@ -176,10 +284,31 @@ class SettingsPanel(QWidget):
 
         layout.addStretch()
 
-        # 异步加载缓存信息
         self._update_cache_info()
+        self._refresh_model_status()
 
         on_language_changed(self._retranslate)
+
+    def _refresh_model_status(self) -> None:
+        """刷新模型可用状态显示。"""
+        mobile_ok = _check_models_available(_MOBILE_MODEL_FILES)
+        server_ok = _check_models_available(_SERVER_MODEL_FILES)
+
+        if mobile_ok:
+            self._mobile_status.setText(tr("model_available"))
+            self._mobile_status.setStyleSheet(f"color: {SUCCESS}; font-weight: 600;")
+        else:
+            self._mobile_status.setText(tr("model_missing"))
+            self._mobile_status.setStyleSheet(f"color: {DANGER}; font-weight: 600;")
+
+        if server_ok:
+            self._server_status.setText(tr("model_available"))
+            self._server_status.setStyleSheet(f"color: {SUCCESS}; font-weight: 600;")
+            self._download_btn.setVisible(False)
+        else:
+            self._server_status.setText(tr("model_missing"))
+            self._server_status.setStyleSheet(f"color: {DANGER}; font-weight: 600;")
+            self._download_btn.setVisible(True)
 
     def _retranslate(self) -> None:
         self._title.setText(tr("settings_title"))
@@ -188,16 +317,67 @@ class SettingsPanel(QWidget):
         self._dir_group.setTitle(tr("settings_output_dir"))
         self._dir_select_btn.setText(tr("settings_select"))
         self._dir_open_btn.setText(tr("settings_open"))
+        self._onnx_group.setTitle(tr("settings_onnx_models"))
+        self._download_btn.setText(tr("model_download"))
         self._cache_group.setTitle(tr("settings_model_cache"))
         self._refresh_btn.setText(tr("settings_refresh"))
         self._clear_btn.setText(tr("settings_delete_paddle"))
         self._about_group.setTitle(tr("settings_about"))
         self._about_text.setText(tr("settings_about_text").format(version=__version__))
+        self._refresh_model_status()
 
     def _on_ui_language_changed(self) -> None:
         lang = self._ui_lang_combo.currentData()
         if lang and lang != current_language():
             set_language(lang)
+
+    def _on_download(self) -> None:
+        """确认后开始下载 Server 模型。"""
+        reply = QMessageBox.question(
+            self,
+            tr("model_download_confirm_title"),
+            tr("model_download_confirm").format(path=_ONNX_MODELS_DIR),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._download_btn.setEnabled(False)
+        self._download_btn.setText(tr("model_downloading").format(pct=0))
+        self._download_progress.setVisible(True)
+        self._download_progress.setValue(0)
+
+        self._download_worker = _ModelDownloadWorker(
+            _MODEL_DOWNLOAD_URL, _ONNX_MODELS_DIR, self
+        )
+        self._download_worker.progress.connect(self._on_download_progress)
+        self._download_worker.finished.connect(self._on_download_finished)
+        self._download_worker.error.connect(self._on_download_error)
+        self._download_worker.start()
+
+    def _on_download_progress(self, pct: int) -> None:
+        self._download_progress.setValue(pct)
+        self._download_btn.setText(tr("model_downloading").format(pct=pct))
+
+    def _on_download_finished(self) -> None:
+        self._download_progress.setVisible(False)
+        self._download_btn.setEnabled(True)
+        self._download_btn.setText(tr("model_download"))
+        self._download_worker = None
+        self._refresh_model_status()
+        self._update_cache_info()
+        QMessageBox.information(self, "✓", tr("model_download_done"))
+
+    def _on_download_error(self, msg: str) -> None:
+        self._download_progress.setVisible(False)
+        self._download_btn.setEnabled(True)
+        self._download_btn.setText(tr("model_download"))
+        self._download_worker = None
+        QMessageBox.warning(
+            self, tr("process_error"),
+            tr("model_download_error").format(error=msg[:200]),
+        )
 
     def _save_language(self) -> None:
         self._settings.setValue("ocr/language", self._lang_combo.currentData())
@@ -250,5 +430,4 @@ class SettingsPanel(QWidget):
             )
 
     def get_output_dir(self) -> str:
-        """供外部读取当前输出目录。"""
         return self._dir_edit.text()
