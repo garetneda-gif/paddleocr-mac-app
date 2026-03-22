@@ -156,7 +156,7 @@ class SettingsPanel(QWidget):
         cache_btn_row.addWidget(self._refresh_btn)
 
         self._clear_btn = QPushButton(tr("settings_delete_paddle"))
-        self._clear_btn.setFixedWidth(140)
+        self._clear_btn.setMinimumWidth(140)
         self._clear_btn.setStyleSheet(f"color: {DANGER};")
         self._clear_btn.clicked.connect(self._clear_cache)
         cache_btn_row.addWidget(self._clear_btn)
